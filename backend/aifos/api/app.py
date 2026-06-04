@@ -75,6 +75,17 @@ class CapitalReq(BaseModel):
     amount: float
 
 
+class OptionOpenReq(BaseModel):
+    symbol: str = settings.default_symbol
+    strategy: str
+    days: int = 7
+    lots: int = 1
+
+
+class OptionCloseReq(BaseModel):
+    id: int
+
+
 class VideoReq(BaseModel):
     url: str
 
@@ -267,6 +278,33 @@ async def export_ep(limit: int = 5000) -> dict:
                 "decisions": k.repo.recent_decisions(limit),
                 "equity_curve": k.repo.equity_curve(limit)}
     return await run_in_threadpool(_run)
+
+
+@app.get("/api/options/strategies")
+async def option_strategies_ep(symbol: str = settings.default_symbol, days: int = 7) -> dict:
+    """Black–Scholes-priced option strategies for a symbol (paper learning lab)."""
+    return await run_in_threadpool(get_kernel().option_strategies, symbol, days)
+
+
+@app.get("/api/options/paper")
+async def option_paper_ep() -> dict:
+    """Open paper option positions, marked to model price + theta decay."""
+    return await run_in_threadpool(get_kernel().option_positions)
+
+
+@app.post("/api/options/paper/open")
+async def option_paper_open_ep(req: OptionOpenReq) -> dict:
+    try:
+        pos = await run_in_threadpool(get_kernel().open_option_paper,
+                                      req.symbol, req.strategy, req.days, req.lots)
+        return {"ok": True, "position": pos}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/options/paper/close")
+async def option_paper_close_ep(req: OptionCloseReq) -> dict:
+    return await run_in_threadpool(get_kernel().close_option_paper, req.id)
 
 
 @app.get("/api/today")

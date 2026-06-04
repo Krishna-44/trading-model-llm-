@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timezone
+from itertools import count
 
 from .agents.base import MarketContext, TradeDecision
 from .agents.committee import AgentCommittee
@@ -68,6 +69,8 @@ class AIFOSKernel:
             logger.exception("broker '%s' connect failed (will retry on demand)", self.broker.name)
         self.autonomous = False             # background trading loop OFF by default
         self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
+        self.option_book: dict = {}                 # paper options strategies (in-memory, session)
+        self._option_id = count(1)
 
     # --- context ---------------------------------------------------------
     def build_context(self, symbol: str, interval: str = "1d") -> MarketContext:
@@ -357,6 +360,61 @@ class AIFOSKernel:
             "recent_trades": self.repo.recent_trades(10),
             "note": "Options = ₹0: the system trades stocks / forex / crypto only (no NSE options feed).",
         }
+
+    # --- paper options lab (Black–Scholes model prices; learning sandbox) --
+    def _underlying(self, symbol: str) -> tuple[float, float]:
+        from .indicators import realized_vol
+        df = self.provider.history(symbol, "1d")
+        spot = float(df["close"].iloc[-1])
+        rv = realized_vol(df["close"], 20).dropna()
+        return spot, max(float(rv.iloc[-1]) if len(rv) else 0.20, 0.05)
+
+    def option_strategies(self, symbol: str | None = None, days: int = 7) -> dict:
+        from .options_lab import STRATEGIES, build_strategy, lot_size
+        symbol = symbol or settings.default_symbol
+        spot, vol = self._underlying(symbol)
+        return {"symbol": symbol, "spot": round(spot, 2), "vol": round(vol, 3), "days": days,
+                "lot_size": lot_size(symbol),
+                "strategies": [build_strategy(n, symbol, spot, vol, days) for n in STRATEGIES]}
+
+    def _mark_option(self, pos: dict) -> dict:
+        from .options_lab import net_value
+        spot = float(self.provider.history(pos["symbol"], "1d")["close"].iloc[-1])
+        elapsed = (datetime.now(timezone.utc) - pos["opened_dt"]).total_seconds() / 86400.0
+        remaining = max(0.0, pos["days_at_open"] - elapsed)
+        cur = net_value(pos["legs"], spot, remaining / 365.0, pos["vol"])
+        return {"id": pos["id"], "symbol": pos["symbol"], "strategy": pos["strategy"], "label": pos["label"],
+                "legs": pos["legs"], "entry_spot": round(pos["entry_spot"], 2), "spot": round(spot, 2),
+                "entry_net": pos["entry_net"], "current_value": cur, "pnl": round(cur - pos["entry_net"], 2),
+                "days_left": round(remaining, 1), "max_profit": pos["max_profit"],
+                "max_loss": pos["max_loss"], "breakevens": pos["breakevens"], "opened": pos["opened"]}
+
+    def open_option_paper(self, symbol: str, strategy: str, days: int = 7, lots: int = 1) -> dict:
+        from .options_lab import build_strategy, net_value
+        spot, vol = self._underlying(symbol)
+        s = build_strategy(strategy, symbol, spot, vol, days, lots)
+        oid = next(self._option_id)
+        self.option_book[oid] = {
+            "id": oid, "symbol": symbol, "strategy": strategy, "label": s["label"], "legs": s["legs"],
+            "entry_spot": spot, "entry_net": net_value(s["legs"], spot, max(days, 1) / 365.0, vol),
+            "opened": _now_iso(), "opened_dt": datetime.now(timezone.utc), "days_at_open": days, "vol": vol,
+            "max_profit": s["max_profit"], "max_loss": s["max_loss"], "breakevens": s["breakevens"],
+        }
+        self.bus.publish("control", {"event": "option_open", "strategy": strategy, "symbol": symbol})
+        return self._mark_option(self.option_book[oid])
+
+    def option_positions(self) -> dict:
+        return {"positions": [self._mark_option(p) for p in self.option_book.values()],
+                "count": len(self.option_book)}
+
+    def close_option_paper(self, oid: int) -> dict:
+        pos = self.option_book.get(int(oid))
+        if not pos:
+            return {"ok": False, "error": "no such paper option position"}
+        final = self._mark_option(pos)
+        self.option_book.pop(int(oid), None)
+        self.bus.publish("control", {"event": "option_close", "id": int(oid), "pnl": final["pnl"]})
+        return {"ok": True, "closed": final}
 
     def deposit_funds(self, amount: float) -> dict:
         if self.broker.is_live:

@@ -5,6 +5,7 @@ import { ChartPanel, useAnalyze } from "@/components/aifos/Analysis";
 import { NewsIntel } from "@/components/aifos/News";
 import { HoldingsPanel } from "@/components/aifos/Holdings";
 import { BrokerPanel } from "@/components/aifos/Broker";
+import { OptionsLab } from "@/components/aifos/OptionsLab";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
@@ -70,6 +71,9 @@ function Dashboard() {
         <div className="col-span-12 lg:col-span-4"><BrokerPanel /></div>
         <div className="col-span-12 lg:col-span-8"><HoldingsPanel /></div>
         <div className="col-span-12"><TradeLog /></div>
+
+        {/* paper options lab — practise strategies with model-priced virtual money */}
+        <div className="col-span-12"><OptionsLab symbol={symbol} /></div>
       </main>
 
       <footer className="px-4 md:px-6 py-6 border-t border-border bg-background/60 backdrop-blur-md mt-4 mb-24">

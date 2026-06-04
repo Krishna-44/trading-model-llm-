@@ -12,7 +12,7 @@ from ..backtest import run_backtest
 from ..config import settings
 from ..data.models import AssetClass, is_offshore_forex
 from ..execution.base import BrokerAdapter, Fill, Order, OrderSide
-from ..strategies import REGISTRY, build_strategy
+from ..strategies import REGISTRY, build_strategy, is_enabled
 from .base import Agent, AgentOpinion, MarketContext
 
 
@@ -23,6 +23,8 @@ class StrategyEvolutionAgent(Agent):
     def analyze(self, ctx: MarketContext) -> AgentOpinion:
         scores: dict[str, float] = {}
         for sname in REGISTRY:
+            if not is_enabled(sname):
+                continue  # marketplace: disabled strategies are not selected
             try:
                 res = run_backtest(ctx.df, build_strategy(sname),
                                    interval=ctx.extra.get("interval", "1d"))

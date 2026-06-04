@@ -497,6 +497,41 @@ class AIFOSKernel:
             "currency": cap["currency"],
         }
 
+    def strategy_market(self, symbol: str | None = None, interval: str | None = None) -> dict:
+        """Backtest every registered strategy on a symbol, ranked by Sharpe — the
+        'strategy marketplace'. Backtests are real history, NOT forward results."""
+        from .backtest import run_backtest
+        from .strategies import REGISTRY, STRATEGY_INFO, build_strategy, is_enabled
+        symbol = symbol or settings.default_symbol
+        interval = interval or settings.default_interval
+        df = self.provider.history(symbol, interval)
+        df.attrs["symbol"] = symbol
+        rows: list[dict] = []
+        for name in REGISTRY:
+            row = {"name": name, "enabled": is_enabled(name), **STRATEGY_INFO.get(name, {})}
+            try:
+                m = run_backtest(df, build_strategy(name), interval=interval,
+                                 capital=settings.starting_capital).metrics
+                row.update({"total_return": m["total_return"], "sharpe": m["sharpe"],
+                            "sortino": m.get("sortino", 0.0), "max_drawdown": m["max_drawdown"],
+                            "win_rate": m["win_rate"], "profit_factor": m["profit_factor"],
+                            "num_trades": m["num_trades"]})
+            except Exception as exc:  # noqa: BLE001
+                row["error"] = str(exc)
+            rows.append(row)
+        ranked = sorted([r for r in rows if "sharpe" in r], key=lambda r: r["sharpe"], reverse=True)
+        return {"symbol": symbol, "interval": interval, "strategies": rows,
+                "best": ranked[0]["name"] if ranked else None,
+                "note": "Backtested on real history, ranked by Sharpe. Backtests are not forward results — "
+                        "the AI confirms a strategy by paper/forward-testing before trusting it."}
+
+    def toggle_strategy(self, name: str, on: bool) -> dict:
+        from .strategies import REGISTRY, is_enabled, set_enabled
+        if name not in REGISTRY:
+            return {"ok": False, "error": f"unknown strategy '{name}'"}
+        set_enabled(name, bool(on))
+        return {"ok": True, "name": name, "enabled": is_enabled(name)}
+
     def explain(self, symbol: str, interval: str = "1d") -> dict:
         """Auditable reasoning tree for a fresh (non-persisted) decision: regime,
         smart-money structure, indicator alignment, the full committee, and the

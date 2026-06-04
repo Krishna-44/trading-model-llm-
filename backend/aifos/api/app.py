@@ -86,6 +86,11 @@ class OptionCloseReq(BaseModel):
     id: int
 
 
+class StrategyToggleReq(BaseModel):
+    name: str
+    enabled: bool
+
+
 class VideoReq(BaseModel):
     url: str
 
@@ -346,6 +351,18 @@ async def correlation(interval: str = settings.default_interval) -> dict:
     from ..analytics import correlation_matrix
     return await run_in_threadpool(
         lambda: correlation_matrix(get_kernel().provider, settings.universe, interval))
+
+
+@app.get("/api/strategies")
+async def strategies_market_ep(symbol: str = settings.default_symbol,
+                               interval: str = settings.default_interval) -> dict:
+    """Strategy marketplace — every strategy backtested on a symbol + ranked, with enable/disable state."""
+    return await run_in_threadpool(get_kernel().strategy_market, symbol, interval)
+
+
+@app.post("/api/strategies/toggle")
+async def strategy_toggle_ep(req: StrategyToggleReq) -> dict:
+    return await run_in_threadpool(get_kernel().toggle_strategy, req.name, req.enabled)
 
 
 @app.get("/api/candle-read")

@@ -6,6 +6,7 @@ import { NewsIntel } from "@/components/aifos/News";
 import { HoldingsPanel } from "@/components/aifos/Holdings";
 import { BrokerPanel } from "@/components/aifos/Broker";
 import { OptionsLab } from "@/components/aifos/OptionsLab";
+import { StrategyMarket } from "@/components/aifos/StrategyMarket";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
@@ -71,6 +72,9 @@ function Dashboard() {
         <div className="col-span-12 lg:col-span-4"><BrokerPanel /></div>
         <div className="col-span-12 lg:col-span-8"><HoldingsPanel /></div>
         <div className="col-span-12"><TradeLog /></div>
+
+        {/* strategy marketplace — backtested + ranked, enable/disable */}
+        <div className="col-span-12"><StrategyMarket symbol={symbol} /></div>
 
         {/* paper options lab — practise strategies with model-priced virtual money */}
         <div className="col-span-12"><OptionsLab symbol={symbol} /></div>

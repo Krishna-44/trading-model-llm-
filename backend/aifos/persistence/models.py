@@ -38,6 +38,7 @@ class TradeRecord(Base):
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     order_id: Mapped[str] = mapped_column(String(64), default="")
     mode: Mapped[str] = mapped_column(String(8), default="paper")  # paper | live
+    strategy: Mapped[str] = mapped_column(String(32), default="")  # which strategy produced it
 
 
 class EquityPoint(Base):

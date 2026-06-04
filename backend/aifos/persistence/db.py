@@ -22,6 +22,35 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 def init_db() -> None:
     from . import models  # noqa: F401 - register tables on Base.metadata
     Base.metadata.create_all(engine)
+    if settings.is_sqlite:
+        _add_missing_columns()  # lightweight migration: add new columns to existing tables
+
+
+def _add_missing_columns() -> None:
+    """SQLite create_all doesn't add columns to existing tables — bridge that for
+    new scalar columns (e.g. trades.strategy) so upgrades don't need a manual migrate."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in tables:
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                default = ""
+                arg = getattr(col.default, "arg", None)
+                if isinstance(arg, str):
+                    default = f" DEFAULT '{arg}'"
+                elif isinstance(arg, (int, float)) and not isinstance(arg, bool):
+                    default = f" DEFAULT {arg}"
+                try:
+                    conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN "
+                                      f"{col.name} {col.type.compile(engine.dialect)}{default}"))
+                except Exception:  # noqa: BLE001 - already exists / unsupported default
+                    pass
 
 
 @contextmanager

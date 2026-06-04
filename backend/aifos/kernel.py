@@ -113,6 +113,7 @@ class AIFOSKernel:
     # --- decide + (maybe) act -------------------------------------------
     def tick(self, symbol: str, interval: str = "1d", execute: bool = True):
         decision, ctx = self.analyze(symbol, interval, persist=False)
+        strategy = ctx.extra.get("strategy_name", "")
         fill = None
         if execute and decision.action in ("BUY", "SELL") and not self.risk.kill_switch_active:
             if self.broker.is_live:
@@ -135,20 +136,21 @@ class AIFOSKernel:
                     symbol=symbol, side=fill.side.value, qty=fill.qty, price=fill.price,
                     commission=fill.commission, realized_pnl=fill.realized_pnl,
                     order_id=fill.order_id, mode="live" if self.broker.is_live else "paper",
+                    strategy=strategy,
                 )
                 self.repo.save_equity(acct.equity, acct.cash)
                 self.evaluator.journal_decision(decision, fill)
                 self.bus.publish("fill", {"fill": fill.to_dict(), "symbol": symbol})
                 self.notifier.send(f"Order filled — {symbol}",
                                    f"{fill.side.value} {fill.qty:.4f} @ {fill.price:.2f}", "info")
-                self._record_plan(symbol, decision)
+                self._record_plan(symbol, decision, strategy)
                 if self.risk.kill_switch_active:
                     self.notifier.send("Daily loss limit breached", self.risk.kill_reason, "critical")
         self._persist_decision(decision)
         return decision, fill
 
     # --- position management (adaptive exits) ----------------------------
-    def _record_plan(self, symbol: str, decision: TradeDecision) -> None:
+    def _record_plan(self, symbol: str, decision: TradeDecision, strategy: str = "") -> None:
         s = decision.sizing or {}
         entry = float(s.get("entry") or 0.0)
         stop = float(s.get("stop_loss") or 0.0)
@@ -158,6 +160,7 @@ class AIFOSKernel:
         self.position_plans[symbol] = {
             "side": decision.side, "entry": entry, "stop": stop, "target": target,
             "r": abs(entry - stop) or entry * 0.01, "high_water": entry, "partial_done": False,
+            "strategy": strategy,
         }
 
     def _after_exit(self, symbol: str, fill, kind: str) -> None:
@@ -167,6 +170,7 @@ class AIFOSKernel:
             symbol=symbol, side=fill.side.value, qty=fill.qty, price=fill.price,
             commission=fill.commission, realized_pnl=fill.realized_pnl,
             order_id=fill.order_id, mode="live" if self.broker.is_live else "paper",
+            strategy=(self.position_plans.get(symbol) or {}).get("strategy", ""),
         )
         self.repo.save_equity(acct.equity, acct.cash)
         self.bus.publish("fill", {"fill": fill.to_dict(), "symbol": symbol, "exit": kind})
@@ -506,9 +510,11 @@ class AIFOSKernel:
         interval = interval or settings.default_interval
         df = self.provider.history(symbol, interval)
         df.attrs["symbol"] = symbol
+        live = self.strategy_live_stats()
         rows: list[dict] = []
         for name in REGISTRY:
-            row = {"name": name, "enabled": is_enabled(name), **STRATEGY_INFO.get(name, {})}
+            row = {"name": name, "enabled": is_enabled(name), **STRATEGY_INFO.get(name, {}),
+                   "live": live.get(name, {"trades": 0, "win_rate": 0.0, "realized_pnl": 0.0})}
             try:
                 m = run_backtest(df, build_strategy(name), interval=interval,
                                  capital=settings.starting_capital).metrics
@@ -524,6 +530,23 @@ class AIFOSKernel:
                 "best": ranked[0]["name"] if ranked else None,
                 "note": "Backtested on real history, ranked by Sharpe. Backtests are not forward results — "
                         "the AI confirms a strategy by paper/forward-testing before trusting it."}
+
+    def strategy_live_stats(self) -> dict:
+        """Realized paper/live performance per strategy — the forward signal of what
+        actually works, attributed by the strategy that opened each closed trade."""
+        by: dict[str, dict] = {}
+        for t in self.repo.recent_trades(3000):
+            pnl = float(t.get("realized_pnl") or 0.0)
+            if pnl == 0.0:
+                continue  # only resolved (closing) trades carry P&L
+            s = t.get("strategy") or "?"
+            b = by.setdefault(s, {"trades": 0, "wins": 0, "pnl": 0.0})
+            b["trades"] += 1
+            b["wins"] += 1 if pnl > 0 else 0
+            b["pnl"] += pnl
+        return {s: {"trades": b["trades"],
+                    "win_rate": round(b["wins"] / b["trades"], 3) if b["trades"] else 0.0,
+                    "realized_pnl": round(b["pnl"], 2)} for s, b in by.items()}
 
     def toggle_strategy(self, name: str, on: bool) -> dict:
         from .strategies import REGISTRY, is_enabled, set_enabled

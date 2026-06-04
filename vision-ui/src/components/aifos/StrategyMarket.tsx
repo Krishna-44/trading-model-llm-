@@ -21,7 +21,7 @@ export function StrategyMarket({ symbol }: { symbol: string }) {
   return (
     <Panel
       title="Strategy Marketplace"
-      subtitle={`${symbol} · ${d.interval} · backtested & ranked by Sharpe`}
+      subtitle={`${symbol} · ${d.interval} · backtest + live paper performance`}
       right={d.best ? <Chip tone="cyan">★ best: {d.best}</Chip> : null}
     >
       <div className="space-y-1.5">
@@ -51,6 +51,22 @@ export function StrategyMarket({ symbol }: { symbol: string }) {
                 </div>
               ) : (
                 <p className="text-[10px] text-[color:var(--down)] mt-1">backtest unavailable</p>
+              )}
+              {s.live && (
+                <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-border/30 text-[10px]">
+                  <span className="uppercase text-muted-foreground tracking-wide">Live paper</span>
+                  {s.live.trades > 0 ? (
+                    <>
+                      <span className="num text-muted-foreground">{s.live.trades} trades</span>
+                      <span className="num">win {Math.round((s.live.win_rate || 0) * 100)}%</span>
+                      <span className={`num ${s.live.realized_pnl >= 0 ? "text-[color:var(--up)]" : "text-[color:var(--down)]"}`}>
+                        {s.live.realized_pnl >= 0 ? "+" : "−"}₹{fmt.n(Math.abs(s.live.realized_pnl))}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground/60">no live trades yet — fills in as it trades</span>
+                  )}
+                </div>
               )}
             </div>
           );

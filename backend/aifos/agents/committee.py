@@ -73,9 +73,12 @@ class AgentCommittee:
         # weighted directional consensus, with regime-adaptive weighting
         regime_info = ctx.extra.get("regime") or {}
         regime = regime_info.get("regime", "unknown")
-        # regime-adaptive confidence bar: stricter in volatility/panic, looser in clean trends
-        eff_threshold = dynamic_confidence_threshold(
-            settings.confidence_threshold, regime, regime_info.get("confidence", 0.0))
+        # regime-adaptive confidence bar: stricter in volatility/panic, looser in clean trends.
+        # Marathon (aggressive paper stress test) ignores the regime tightening — it deploys
+        # at the flat base bar so it actually opens multiple positions.
+        eff_threshold = (settings.confidence_threshold if getattr(risk, "marathon", False)
+                         else dynamic_confidence_threshold(
+                             settings.confidence_threshold, regime, regime_info.get("confidence", 0.0)))
         voters = [o for o in opinions if o.weight > 0]
 
         def _w(o: AgentOpinion) -> float:

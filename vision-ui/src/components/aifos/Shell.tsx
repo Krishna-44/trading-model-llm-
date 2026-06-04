@@ -62,6 +62,30 @@ export function Header({ symbol }: { symbol: string }) {
   );
 }
 
+function StartTradingButton() {
+  const { data: risk } = useApi<any>("/api/risk", { pollMs: 5000 });
+  const on = risk?.autonomous ?? false;
+  const [busy, setBusy] = useState(false);
+  const toggle = async () => {
+    setBusy(true);
+    try { await api("/api/control/autonomous", { method: "POST", body: JSON.stringify({ enabled: !on }) }); } catch {} finally { setBusy(false); }
+  };
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      title="Start autonomous intraday paper trading — it learns from each trade's P&L"
+      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${on
+        ? "bg-rose-500/15 border border-rose-500/50 text-rose-300 hover:bg-rose-500/25"
+        : "bg-gradient-to-r from-emerald-400 to-[color:var(--cyan)] text-background hover:opacity-90 shadow-lg shadow-emerald-500/20"}`}
+    >
+      {on
+        ? (<><span className="w-2 h-2 rounded-[2px] bg-rose-400" /> Stop Trading</>)
+        : (<><span className="w-0 h-0 border-y-[5px] border-y-transparent border-l-[8px] border-l-background" /> Start Trading <span className="opacity-70 font-normal">· paper</span></>)}
+    </button>
+  );
+}
+
 export function ControlBar({ symbol, setSymbol, interval, setInterval, onAnalyze, onBacktest, onCycle, analyzing }: {
   symbol: string; setSymbol: (s: string) => void;
   interval: string; setInterval: (s: string) => void;
@@ -93,6 +117,7 @@ export function ControlBar({ symbol, setSymbol, interval, setInterval, onAnalyze
         </div>
       )}
       <div className="ml-auto flex items-center gap-2">
+        <StartTradingButton />
         <button onClick={onAnalyze} disabled={analyzing} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-[color:var(--cyan)] to-[color:var(--indigo)] text-background hover:opacity-90 transition disabled:opacity-60">
           {analyzing ? "Analyzing…" : "Analyze"}
         </button>

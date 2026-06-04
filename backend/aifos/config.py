@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     default_symbol: str = "^NSEI"
     default_interval: str = "1d"
     autonomous_interval_s: int = 300  # forward-test cadence: run a cycle + snapshot equity every N seconds
+    trading_interval: str = "15m"     # bar interval the autonomous "Start Trading" loop trades (intraday)
 
     # --- Capital / paper account ---
     starting_capital: float = 1_000_000.0  # ₹10L paper book

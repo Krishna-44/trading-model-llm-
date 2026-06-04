@@ -26,6 +26,13 @@ class SelfEvaluator:
             outcome="open", lesson="",
         )
 
+    def resolve(self, symbol: str, realized_pnl: float) -> None:
+        """Close the loop: mark the symbol's latest open journal entry win/loss when
+        the trade books P&L — predicted vs actual, the seed of self-improvement."""
+        outcome = "win" if realized_pnl > 0 else "loss" if realized_pnl < 0 else "flat"
+        self.repo.resolve_open_journal(
+            symbol, outcome, f"Closed {symbol}: {outcome} {realized_pnl:+,.0f}.")
+
     def mine_lessons(self) -> list[str]:
         """Aggregate honest lessons from realized trades."""
         trades = self.repo.recent_trades(500)

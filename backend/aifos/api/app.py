@@ -107,7 +107,7 @@ async def _autonomous_loop() -> None:
         if not k.autonomous or k.risk.kill_switch_active:
             continue
         try:
-            await run_in_threadpool(k.run_universe, True)
+            await run_in_threadpool(k.run_universe, True, settings.trading_interval)
         except Exception:  # noqa: BLE001
             logger.exception("autonomous cycle error")
 
@@ -225,6 +225,27 @@ async def options_ep(symbol: str = settings.default_symbol) -> dict:
     `available: False` when no real feed is reachable — never invents OI."""
     from ..options_intel import analyze_options
     return await run_in_threadpool(analyze_options, symbol)
+
+
+@app.get("/api/learning")
+async def learning_ep() -> dict:
+    """Self-learning view: honest lessons mined from realized P&L + journal outcomes."""
+    def _run() -> dict:
+        k = get_kernel()
+        tr = k.track_record()
+        return {
+            "autonomous": k.autonomous,
+            "trading_interval": settings.trading_interval,
+            "lessons": k.evaluator.mine_lessons(),
+            "journal": k.repo.recent_journal(12),
+            "memory": k.memory.stats(),
+            "decisions": tr.get("decisions"),
+            "executed": tr.get("executed"),
+            "closed_trades": tr.get("closed_trades"),
+            "win_rate": tr.get("win_rate"),
+            "note": "Learns empirically from its own paper trades. No profit is guaranteed.",
+        }
+    return await run_in_threadpool(_run)
 
 
 @app.get("/api/deployment")

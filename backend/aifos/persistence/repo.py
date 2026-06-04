@@ -68,6 +68,18 @@ class Repository:
             ).scalars().all()
             return [_row(r) for r in rows]
 
+    def resolve_open_journal(self, symbol: str, outcome: str, lesson: str) -> None:
+        """Resolve the latest still-open journal entry for a symbol to a win/loss."""
+        with get_session() as s:
+            row = s.execute(
+                select(JournalEntry)
+                .where(JournalEntry.symbol == symbol, JournalEntry.outcome == "open")
+                .order_by(desc(JournalEntry.ts)).limit(1)
+            ).scalars().first()
+            if row:
+                row.outcome = outcome
+                row.lesson = lesson
+
     # --- track-record aggregates ----------------------------------------
     def count_decisions(self) -> int:
         with get_session() as s:

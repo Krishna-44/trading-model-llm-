@@ -166,6 +166,7 @@ class AIFOSKernel:
         self.notifier.send(f"Exit · {kind} — {symbol}",
                            f"{fill.side.value} {fill.qty:.4f} @ {fill.price:.2f} "
                            f"(pnl {fill.realized_pnl:,.2f})", "info")
+        self.evaluator.resolve(symbol, fill.realized_pnl)  # close the learn-from-P&L loop
 
     def manage_positions(self) -> list[dict]:
         """Adaptive exits on open positions each cycle: hard stop/target, partial
@@ -215,8 +216,9 @@ class AIFOSKernel:
                 plan["stop"] = max(plan["stop"], trail) if long else min(plan["stop"], trail)
         return actions
 
-    def run_universe(self, execute: bool = True) -> list[dict]:
+    def run_universe(self, execute: bool = True, interval: str | None = None) -> list[dict]:
         out = []
+        interval = interval or settings.default_interval
         if execute:
             try:
                 self.manage_positions()
@@ -224,7 +226,7 @@ class AIFOSKernel:
                 logger.exception("position management failed")
         for sym in settings.universe:
             try:
-                decision, fill = self.tick(sym, settings.default_interval, execute=execute)
+                decision, fill = self.tick(sym, interval, execute=execute)
                 out.append({"symbol": sym, "action": decision.action,
                             "confidence": decision.confidence, "executed": decision.executed})
             except Exception as exc:  # noqa: BLE001 - never let one symbol stop the loop

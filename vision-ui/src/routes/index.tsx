@@ -8,6 +8,7 @@ import { PortfolioPanel, RiskEngine } from "@/components/aifos/Portfolio";
 import { TrackRecord } from "@/components/aifos/TrackRecord";
 import { CapitalPanel } from "@/components/aifos/Capital";
 import { Deployment } from "@/components/aifos/Deployment";
+import { LearningPanel } from "@/components/aifos/Learning";
 import { TodayPanel } from "@/components/aifos/Today";
 import { ReasoningTree } from "@/components/aifos/ReasoningTree";
 import { OptionsChain } from "@/components/aifos/OptionsChain";
@@ -63,7 +64,8 @@ function Dashboard() {
         <div className="col-span-12 lg:col-span-5"><CapitalPanel /></div>
         <div className="col-span-12 lg:col-span-7"><TrackRecord /></div>
 
-        <div className="col-span-12"><Deployment /></div>
+        <div className="col-span-12 lg:col-span-7"><Deployment /></div>
+        <div className="col-span-12 lg:col-span-5"><LearningPanel /></div>
 
         <div className="col-span-12"><ReasoningTree symbol={symbol} /></div>
 

@@ -428,6 +428,14 @@ async def pnl_breakdown_ep() -> dict:
     return await run_in_threadpool(get_kernel().pnl_breakdown)
 
 
+@app.post("/api/strategies/enforce")
+async def strategies_enforce_ep(payload: dict | None = None) -> dict:
+    """Monte Carlo enforcement: auto-disable strategies that fail robustness on every
+    tested market. Pass {"apply": false} for a dry run (report only)."""
+    apply = True if not payload else bool(payload.get("apply", True))
+    return await run_in_threadpool(get_kernel().enforce_robustness, apply)
+
+
 @app.get("/api/candle-read")
 async def candle_read_ep(symbol: str = settings.default_symbol,
                          interval: str = settings.default_interval) -> dict:

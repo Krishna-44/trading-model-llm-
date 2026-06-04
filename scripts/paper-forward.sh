@@ -24,6 +24,7 @@ PLIST="$LA/$LABEL.plist"
 WPLIST="$LA/$WLABEL.plist"
 LOGDIR="$BACKEND/logs"
 HEALTH="http://127.0.0.1:$PORT/api/health"
+BAR="${AIFOS_PAPER_BAR:-0.30}"   # forward-test confidence bar (looser than the 0.62 live bar)
 
 mkdir -p "$LA" "$LOGDIR"
 
@@ -48,7 +49,7 @@ write_main_plist() {
     <key>AIFOS_BROKER</key><string>paper</string>
     <key>AIFOS_DATABASE_URL</key><string>sqlite:///$BACKEND/paper_forward.db</string>
     <key>AIFOS_LLM_PROVIDER</key><string>none</string>
-    <key>AIFOS_CONFIDENCE_THRESHOLD</key><string>0.40</string>
+    <key>AIFOS_CONFIDENCE_THRESHOLD</key><string>$BAR</string>
     <key>AIFOS_AUTONOMOUS_ON_START</key><string>true</string>
     <key>AIFOS_LOG_FILE</key><string>$LOGDIR/paper_forward.app.log</string>
     <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin</string>

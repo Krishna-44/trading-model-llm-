@@ -9,6 +9,7 @@ import { OptionsLab } from "@/components/aifos/OptionsLab";
 import { StrategyMarket } from "@/components/aifos/StrategyMarket";
 import { VideoStrategies } from "@/components/aifos/VideoStrategies";
 import { PaperTrading } from "@/components/aifos/PaperTrading";
+import { Robustness } from "@/components/aifos/Robustness";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
@@ -83,7 +84,10 @@ function Dashboard() {
         <div className="col-span-12"><VideoStrategies /></div>
 
         {/* strategy marketplace — backtested + ranked, enable/disable */}
-        <div className="col-span-12"><StrategyMarket symbol={symbol} /></div>
+        <div className="col-span-12 lg:col-span-7"><StrategyMarket symbol={symbol} /></div>
+
+        {/* robustness · Monte Carlo enforcement (forward instance) */}
+        <div className="col-span-12 lg:col-span-5"><Robustness symbol={symbol} /></div>
 
         {/* paper options lab — practise strategies with model-priced virtual money */}
         <div className="col-span-12"><OptionsLab symbol={symbol} /></div>

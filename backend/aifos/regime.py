@@ -63,3 +63,20 @@ def regime_weight_multiplier(agent_name: str, regime: str) -> float:
     if regime == "panic":
         return 0.4
     return 1.0
+
+
+# Tighten the confidence bar when the environment is dangerous, loosen it when a
+# clean trend is in force. Positive = stricter (demand more conviction).
+_REGIME_BAR_ADJ = {
+    "trending_up": -0.07, "trending_down": -0.07,
+    "ranging": 0.04, "volatile": 0.10, "panic": 0.18,
+}
+
+
+def dynamic_confidence_threshold(base: float, regime: str, regime_conf: float = 0.0) -> float:
+    """Regime-adaptive confidence gate. Raises the bar in volatile/panic/ranging
+    regimes (capital preservation) and lowers it under a confident strong trend,
+    scaled by how sure the regime read is. Bounded [0.20, 0.85] so it never goes
+    recklessly low or unreachably high."""
+    adj = _REGIME_BAR_ADJ.get(regime, 0.0) * (0.5 + 0.5 * max(0.0, min(1.0, regime_conf)))
+    return round(max(0.20, min(0.85, base + adj)), 3)

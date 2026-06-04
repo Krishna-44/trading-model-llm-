@@ -546,7 +546,7 @@ class AIFOSKernel:
     def strategy_market(self, symbol: str | None = None, interval: str | None = None) -> dict:
         """Backtest every registered strategy on a symbol, ranked by Sharpe — the
         'strategy marketplace'. Backtests are real history, NOT forward results."""
-        from .backtest import run_backtest
+        from .backtest import monte_carlo, run_backtest
         from .strategies import REGISTRY, STRATEGY_INFO, build_strategy, is_enabled
         symbol = symbol or settings.default_symbol
         interval = interval or settings.default_interval
@@ -558,20 +558,87 @@ class AIFOSKernel:
             row = {"name": name, "enabled": is_enabled(name), **STRATEGY_INFO.get(name, {}),
                    "live": live.get(name, {"trades": 0, "win_rate": 0.0, "realized_pnl": 0.0})}
             try:
-                m = run_backtest(df, build_strategy(name), interval=interval,
-                                 capital=settings.starting_capital).metrics
+                res = run_backtest(df, build_strategy(name), interval=interval,
+                                   capital=settings.starting_capital)
+                m = res.metrics
                 row.update({"total_return": m["total_return"], "sharpe": m["sharpe"],
                             "sortino": m.get("sortino", 0.0), "max_drawdown": m["max_drawdown"],
                             "win_rate": m["win_rate"], "profit_factor": m["profit_factor"],
                             "num_trades": m["num_trades"]})
+                mc = monte_carlo(res.trades)
+                row["monte_carlo"] = {k: mc.get(k) for k in
+                                      ("reliable", "verdict", "p_profit", "median_return",
+                                       "return_without_best_trade")}
             except Exception as exc:  # noqa: BLE001
                 row["error"] = str(exc)
             rows.append(row)
-        ranked = sorted([r for r in rows if "sharpe" in r], key=lambda r: r["sharpe"], reverse=True)
+        # robustness-aware ranking: Sharpe, penalised for unreliable / fragile / unprofitable
+        ranked = sorted([r for r in rows if "sharpe" in r], key=self._robustness_score, reverse=True)
         return {"symbol": symbol, "interval": interval, "strategies": rows,
                 "best": ranked[0]["name"] if ranked else None,
-                "note": "Backtested on real history, ranked by Sharpe. Backtests are not forward results — "
-                        "the AI confirms a strategy by paper/forward-testing before trusting it."}
+                "note": "Backtested on real history, ranked by Monte-Carlo-adjusted robustness "
+                        "(Sharpe penalised for fragile/unreliable edges). Backtests are not forward "
+                        "results — the AI confirms a strategy by paper/forward-testing before trusting it."}
+
+    @staticmethod
+    def _robustness_score(r: dict) -> float:
+        """Sharpe, penalised so a fragile or unprofitable edge ranks below a modest
+        but robust one. Used to rank the marketplace and drive MC enforcement."""
+        if "sharpe" not in r:
+            return -99.0
+        s = float(r.get("sharpe") or 0.0)
+        tr = float(r.get("total_return") or 0.0)
+        mc = r.get("monte_carlo") or {}
+        if tr <= 0:
+            s -= 1.0                                            # unprofitable on real history
+        if mc.get("reliable") is False:
+            s -= 0.4                                            # too few trades / no losses to test
+        wob = mc.get("return_without_best_trade")
+        if wob is not None and wob <= 0 < tr:
+            s -= 0.6                                            # edge collapses without one trade
+        return s
+
+    def enforce_robustness(self, apply: bool = True) -> dict:
+        """Monte Carlo ENFORCEMENT. Backtest each strategy across a multi-market
+        basket, run MC, and AUTO-DISABLE any strategy that fails robustness on
+        EVERY market it was tested on (unprofitable, or an edge that collapses
+        without its single best trade). Honest: it can only DISABLE a fragile
+        strategy, never enable one; survivors on any market are kept."""
+        from .backtest import monte_carlo, run_backtest
+        from .strategies import REGISTRY, build_strategy, is_enabled, set_enabled
+        basket = ["^NSEI", "USDINR=X", "BTC-USD", "RELIANCE.NS"]
+        disabled: list[dict] = []
+        report: list[dict] = []
+        for name in REGISTRY:
+            results = []
+            for sym in basket:
+                try:
+                    df = self.provider.history(sym, settings.default_interval)
+                    df.attrs["symbol"] = sym
+                    res = run_backtest(df, build_strategy(name), interval=settings.default_interval,
+                                       capital=settings.starting_capital)
+                    mc = monte_carlo(res.trades)
+                    tr = float(res.metrics["total_return"])
+                    wob = mc.get("return_without_best_trade")
+                    robust = tr > 0 and not (wob is not None and wob <= 0 < tr)
+                    results.append({"symbol": sym, "total_return": round(tr, 4), "robust": robust})
+                except Exception:  # noqa: BLE001
+                    continue
+            if not results:
+                continue
+            survives = any(r["robust"] for r in results)
+            best = max(r["total_return"] for r in results)
+            report.append({"strategy": name, "survives": survives,
+                           "best_return": best, "markets": len(results)})
+            if not survives and is_enabled(name):
+                if apply:
+                    set_enabled(name, False)
+                disabled.append({"strategy": name,
+                                 "reason": f"fails robustness on all {len(results)} markets "
+                                           f"(best return {best:+.1%})"})
+        return {"basket": basket, "applied": apply, "disabled": disabled, "report": report,
+                "note": "Auto-disabled strategies that fail Monte Carlo robustness on EVERY tested "
+                        "market. Re-enable manually in the marketplace if you disagree."}
 
     @staticmethod
     def _extraction_symbol(market) -> str:

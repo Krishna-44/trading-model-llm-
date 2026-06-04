@@ -86,9 +86,10 @@ class RiskEngine:
         self, *, side: str, entry: float, atr: float, confidence: float,
         equity: float, open_positions: int, current_exposure_value: float,
         adv_notional: float | None = None, structure_stop: float | None = None,
-        asset_class: str = "equity",
+        asset_class: str = "equity", confidence_threshold: float | None = None,
     ) -> RiskAssessment:
         a = RiskAssessment(approved=False, side=side, entry=entry)
+        threshold = settings.confidence_threshold if confidence_threshold is None else confidence_threshold
 
         if self.kill_switch_active:
             a.rejections.append(f"kill switch active: {self.kill_reason}")
@@ -97,10 +98,8 @@ class RiskEngine:
         if side not in ("long", "short"):
             a.rejections.append("no directional edge -> hold")
             return a
-        if confidence < settings.confidence_threshold:
-            a.rejections.append(
-                f"confidence {confidence:.2f} < threshold {settings.confidence_threshold:.2f}"
-            )
+        if confidence < threshold:
+            a.rejections.append(f"confidence {confidence:.2f} < threshold {threshold:.2f}")
             return a
         if open_positions >= settings.max_open_positions:
             a.rejections.append(f"max open positions ({settings.max_open_positions}) reached")
@@ -188,10 +187,16 @@ class RiskEngine:
             "trades_today": self.realized_trades_today,
             "limits": {
                 "confidence_threshold": settings.confidence_threshold,
+                "confidence_threshold_adaptive": True,  # regime-adjusted per cycle
                 "max_position_pct": settings.max_position_pct,
                 "max_open_positions": settings.max_open_positions,
                 "max_daily_loss_pct": settings.max_daily_loss_pct,
                 "min_rr_ratio": settings.min_rr_ratio,
+            },
+            "correlation_limiter": {
+                "threshold": settings.correlation_threshold,
+                "max_correlated_positions": settings.max_correlated_positions,
+                "max_correlated_exposure_pct": settings.max_correlated_exposure_pct,
             },
             "risk_profiles": RISK_PROFILES,
         }

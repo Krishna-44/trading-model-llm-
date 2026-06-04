@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from ..config import settings
 from ..risk import RiskEngine
-from ..regime import regime_weight_multiplier
+from ..regime import dynamic_confidence_threshold, regime_weight_multiplier
 from .analysts import (
     CandlestickAgent,
     MacroAgent,
@@ -71,7 +71,11 @@ class AgentCommittee:
         vetoes = [o for o in opinions if o.veto]
 
         # weighted directional consensus, with regime-adaptive weighting
-        regime = (ctx.extra.get("regime") or {}).get("regime", "unknown")
+        regime_info = ctx.extra.get("regime") or {}
+        regime = regime_info.get("regime", "unknown")
+        # regime-adaptive confidence bar: stricter in volatility/panic, looser in clean trends
+        eff_threshold = dynamic_confidence_threshold(
+            settings.confidence_threshold, regime, regime_info.get("confidence", 0.0))
         voters = [o for o in opinions if o.weight > 0]
 
         def _w(o: AgentOpinion) -> float:
@@ -103,8 +107,11 @@ class AgentCommittee:
                     equity=ctx.equity, open_positions=ctx.open_positions,
                     current_exposure_value=ctx.exposure_value, adv_notional=ctx.adv_notional,
                     structure_stop=structure_stop, asset_class=ctx.asset_class,
+                    confidence_threshold=eff_threshold,
                 )
                 risk_dict = assessment.to_dict()
+                risk_dict["confidence_threshold"] = eff_threshold
+                risk_dict["regime"] = regime
                 if assessment.approved:
                     action = "BUY" if side == "long" else "SELL"
                     sizing = risk_dict

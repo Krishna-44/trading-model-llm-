@@ -130,8 +130,8 @@ def build_strategy(name: str, symbol: str, spot: float, vol: float, days: int, l
         "long_strangle":    lambda: [leg("CE", atm + step, "buy"), leg("PE", atm - step, "buy")],
         "bull_call_spread": lambda: [leg("CE", atm, "buy"), leg("CE", atm + 2 * step, "sell")],
         "bear_put_spread":  lambda: [leg("PE", atm, "buy"), leg("PE", atm - 2 * step, "sell")],
-        "iron_condor":      lambda: [leg("CE", atm + step, "sell"), leg("CE", atm + 3 * step, "buy"),
-                                     leg("PE", atm - step, "sell"), leg("PE", atm - 3 * step, "buy")],
+        "iron_condor":      lambda: [leg("CE", atm + 3 * step, "sell"), leg("CE", atm + 5 * step, "buy"),
+                                     leg("PE", atm - 3 * step, "sell"), leg("PE", atm - 5 * step, "buy")],
     }
     legs = builders[name]()
     info = STRATEGIES[name]

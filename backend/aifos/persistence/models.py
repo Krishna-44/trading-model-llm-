@@ -59,3 +59,21 @@ class JournalEntry(Base):
     actual: Mapped[dict] = mapped_column(JSON, default=dict)
     outcome: Mapped[str] = mapped_column(String(16), default="open")  # win|loss|flat|open
     lesson: Mapped[str] = mapped_column(Text, default="")
+
+
+class OptionPositionRecord(Base):
+    """A paper options-lab strategy position (model-priced; survives restarts)."""
+    __tablename__ = "option_positions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)  # opened
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    strategy: Mapped[str] = mapped_column(String(32))
+    label: Mapped[str] = mapped_column(String(48), default="")
+    legs: Mapped[list] = mapped_column(JSON, default=list)
+    entry_spot: Mapped[float] = mapped_column(Float, default=0.0)
+    entry_net: Mapped[float] = mapped_column(Float, default=0.0)
+    days_at_open: Mapped[int] = mapped_column(Integer, default=7)
+    vol: Mapped[float] = mapped_column(Float, default=0.2)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)   # max_profit/max_loss/breakevens
+    status: Mapped[str] = mapped_column(String(8), default="open")  # open | closed
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)

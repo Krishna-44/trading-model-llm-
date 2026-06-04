@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useApi } from "@/lib/aifos/useFetch";
 import { api, fmt } from "@/lib/aifos/api";
 import { Panel, Chip, Empty } from "./Panel";
+import { PayoffChart } from "./PayoffChart";
 
 const inr = (v: number | null | undefined, d = 0) =>
   v == null || !Number.isFinite(v) ? "—" : `₹${fmt.n(v, d)}`;
@@ -59,6 +60,7 @@ export function OptionsLab({ symbol }: { symbol: string }) {
               <Row k="Max loss" v={inr(st.max_loss)} tone="down" />
               <Row k="Breakeven" v={(st.breakevens || []).map((b: number) => fmt.n(b)).join(" / ") || "—"} />
             </div>
+            <PayoffChart payoff={st.payoff} spot={s.spot} />
             <button onClick={() => open(st.strategy)} disabled={!!busy}
               className="mt-auto chip border-[color:var(--cyan)]/40 text-[color:var(--cyan)] hover:bg-[color:var(--cyan)]/10 disabled:opacity-50 justify-center">
               {busy === st.strategy ? "opening…" : "Open (paper)"}

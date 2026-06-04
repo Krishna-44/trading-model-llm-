@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import delete, desc, func, select
 
 from .db import get_session
-from .models import DecisionRecord, EquityPoint, JournalEntry, TradeRecord
+from .models import DecisionRecord, EquityPoint, JournalEntry, OptionPositionRecord, TradeRecord
 
 
 def _row(obj) -> dict:
@@ -101,7 +101,31 @@ class Repository:
         return min(cands).isoformat() if cands else None
 
     def reset_paper(self) -> None:
-        """Wipe all paper history — decisions, trades, equity curve, journal."""
+        """Wipe all paper history — decisions, trades, equity curve, journal, options."""
         with get_session() as s:
-            for model in (DecisionRecord, TradeRecord, EquityPoint, JournalEntry):
+            for model in (DecisionRecord, TradeRecord, EquityPoint, JournalEntry, OptionPositionRecord):
                 s.execute(delete(model))
+
+    # --- paper options lab persistence ----------------------------------
+    def save_option(self, **kw) -> int:
+        with get_session() as s:
+            rec = OptionPositionRecord(**kw)
+            s.add(rec)
+            s.flush()
+            return rec.id
+
+    def open_options(self) -> list[dict]:
+        with get_session() as s:
+            rows = s.execute(
+                select(OptionPositionRecord)
+                .where(OptionPositionRecord.status == "open")
+                .order_by(OptionPositionRecord.ts)
+            ).scalars().all()
+            return [_row(r) for r in rows]
+
+    def close_option(self, oid: int, realized_pnl: float) -> None:
+        with get_session() as s:
+            row = s.get(OptionPositionRecord, int(oid))
+            if row:
+                row.status = "closed"
+                row.realized_pnl = realized_pnl

@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timezone
-from itertools import count
 
 from .agents.base import MarketContext, TradeDecision
 from .agents.committee import AgentCommittee
@@ -69,8 +68,8 @@ class AIFOSKernel:
             logger.exception("broker '%s' connect failed (will retry on demand)", self.broker.name)
         self.autonomous = False             # background trading loop OFF by default
         self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
-        self.option_book: dict = {}                 # paper options strategies (in-memory, session)
-        self._option_id = count(1)
+        self.option_book: dict = {}                 # paper options strategies (mirrors DB)
+        self._load_options()
 
     # --- context ---------------------------------------------------------
     def build_context(self, symbol: str, interval: str = "1d") -> MarketContext:
@@ -393,10 +392,15 @@ class AIFOSKernel:
         from .options_lab import build_strategy, net_value
         spot, vol = self._underlying(symbol)
         s = build_strategy(strategy, symbol, spot, vol, days, lots)
-        oid = next(self._option_id)
+        entry_net = net_value(s["legs"], spot, max(days, 1) / 365.0, vol)
+        oid = self.repo.save_option(
+            symbol=symbol, strategy=strategy, label=s["label"], legs=s["legs"],
+            entry_spot=spot, entry_net=entry_net, days_at_open=days, vol=vol,
+            meta={"max_profit": s["max_profit"], "max_loss": s["max_loss"], "breakevens": s["breakevens"]},
+        )
         self.option_book[oid] = {
             "id": oid, "symbol": symbol, "strategy": strategy, "label": s["label"], "legs": s["legs"],
-            "entry_spot": spot, "entry_net": net_value(s["legs"], spot, max(days, 1) / 365.0, vol),
+            "entry_spot": spot, "entry_net": entry_net,
             "opened": _now_iso(), "opened_dt": datetime.now(timezone.utc), "days_at_open": days, "vol": vol,
             "max_profit": s["max_profit"], "max_loss": s["max_loss"], "breakevens": s["breakevens"],
         }
@@ -407,11 +411,29 @@ class AIFOSKernel:
         return {"positions": [self._mark_option(p) for p in self.option_book.values()],
                 "count": len(self.option_book)}
 
+    def _load_options(self) -> None:
+        """Restore open paper option positions from the DB (survive restarts)."""
+        try:
+            for r in self.repo.open_options():
+                meta = r.get("meta") or {}
+                self.option_book[r["id"]] = {
+                    "id": r["id"], "symbol": r["symbol"], "strategy": r["strategy"],
+                    "label": r["label"], "legs": r["legs"], "entry_spot": r["entry_spot"],
+                    "entry_net": r["entry_net"], "opened": r["ts"],
+                    "opened_dt": datetime.fromisoformat(r["ts"]).replace(tzinfo=timezone.utc),
+                    "days_at_open": r["days_at_open"], "vol": r["vol"],
+                    "max_profit": meta.get("max_profit"), "max_loss": meta.get("max_loss", 0.0),
+                    "breakevens": meta.get("breakevens", []),
+                }
+        except Exception:  # noqa: BLE001 - a cold/missing table must not crash startup
+            logger.exception("failed to load persisted option positions")
+
     def close_option_paper(self, oid: int) -> dict:
         pos = self.option_book.get(int(oid))
         if not pos:
             return {"ok": False, "error": "no such paper option position"}
         final = self._mark_option(pos)
+        self.repo.close_option(int(oid), final["pnl"])
         self.option_book.pop(int(oid), None)
         self.bus.publish("control", {"event": "option_close", "id": int(oid), "pnl": final["pnl"]})
         return {"ok": True, "closed": final}

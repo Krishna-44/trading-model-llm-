@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     per_trade_cap: float = 100_000.0        # hard absolute cap per order (base ccy)
     min_rr_ratio: float = 1.5               # reject trades below this reward:risk
 
+    # Correlation / directional-concentration limiter (survivability): don't stack
+    # the SAME directional bet across correlated assets (e.g. short BTC + short ETH).
+    correlation_threshold: float = 0.6      # |rho| at/above this = "correlated"
+    correlation_lookback: int = 90          # bars of returns used to measure rho
+    max_correlated_positions: int = 1       # max aligned correlated positions before a new one is blocked
+    max_correlated_exposure_pct: float = 0.20  # cap on combined correlated same-direction notional
+
     # News alignment gate (loss-avoidance: never trade INTO opposing/uncertain news)
     news_veto_impact: float = 0.4           # block trades against news at/above this impact
     news_event_impact: float = 0.6          # impact level that counts as a "major event"

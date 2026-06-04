@@ -110,12 +110,54 @@ class AIFOSKernel:
         self.bus.publish("decision", {"decision": decision.to_dict()})
         return decision, ctx
 
+    def _correlation_gate(self, symbol: str, decision, interval: str) -> str | None:
+        """Block a trade that would STACK the same directional bet across correlated
+        assets (e.g. short BTC while already short ETH). Returns a reason or None.
+        Survivability gate — it can only block, never create or resize a trade."""
+        sizing = decision.sizing or {}
+        cand_notional = float(sizing.get("size_value") or 0.0)
+        if cand_notional <= 0 or decision.side not in ("long", "short"):
+            return None
+        try:
+            pf = self.portfolio()
+        except Exception:  # noqa: BLE001
+            return None
+        poss = [{"symbol": p["symbol"], "dir": 1 if p["qty"] > 0 else -1,
+                 "notional": abs(p["qty"]) * float(p.get("avg_price") or 0.0)}
+                for p in pf.get("positions", []) if p.get("symbol") and p.get("qty")]
+        if not poss:
+            return None
+        from .risk.correlation import aligned_correlated
+        cand_dir = 1 if decision.side == "long" else -1
+        aligned, combined = aligned_correlated(
+            self.provider, symbol, cand_dir, cand_notional, poss,
+            interval=interval, threshold=settings.correlation_threshold,
+            lookback=settings.correlation_lookback)
+        if not aligned:
+            return None
+        names = ", ".join(f"{a['symbol']} ρ{a['corr']:+.2f}" for a in aligned)
+        if len(aligned) >= settings.max_correlated_positions:
+            return (f"already holding {len(aligned)} correlated {decision.side} "
+                    f"position(s) [{names}] — refusing to stack the same bet")
+        equity = float(pf.get("account", {}).get("equity") or settings.starting_capital)
+        cap = equity * settings.max_correlated_exposure_pct
+        if combined > cap:
+            return (f"combined correlated {decision.side} exposure {combined:,.0f} > "
+                    f"{settings.max_correlated_exposure_pct:.0%} equity cap [{names}]")
+        return None
+
     # --- decide + (maybe) act -------------------------------------------
     def tick(self, symbol: str, interval: str = "1d", execute: bool = True):
         decision, ctx = self.analyze(symbol, interval, persist=False)
         strategy = ctx.extra.get("strategy_name", "")
         fill = None
         if execute and decision.action in ("BUY", "SELL") and not self.risk.kill_switch_active:
+            corr_block = self._correlation_gate(symbol, decision, interval)
+            if corr_block:  # don't stack the same directional bet across correlated assets
+                decision.reasoning += f" | CORRELATION GATE: {corr_block}"
+                logger.info("correlation gate held %s: %s", symbol, corr_block)
+                self._persist_decision(decision)
+                return decision, None
             if self.broker.is_live:
                 ds = self.deployment()  # staged-deployment safety gate for REAL orders
                 if not ds["live_permitted"]:

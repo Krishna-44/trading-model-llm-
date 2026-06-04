@@ -25,6 +25,7 @@ class PaperBroker(BrokerAdapter):
     ) -> None:
         self.provider = provider or get_provider()
         self.cash = starting_cash if starting_cash is not None else settings.starting_capital
+        self.contributed = self.cash  # net external capital (deposits − withdrawals), for honest return
         self.commission_bps = commission_bps
         self.slippage_bps = slippage_bps
         self.positions: dict[str, Position] = {}
@@ -38,10 +39,31 @@ class PaperBroker(BrokerAdapter):
     def reset(self, starting_cash: float | None = None) -> None:
         """Restore the book to its starting state — for a fresh forward test."""
         self.cash = starting_cash if starting_cash is not None else settings.starting_capital
+        self.contributed = self.cash
         self.positions.clear()
         self.realized_pnl = 0.0
         self._last_prices.clear()
         logger.info("paper broker reset: cash=%.2f %s", self.cash, settings.base_currency)
+
+    def deposit(self, amount: float) -> float:
+        """Add capital — becomes uninvested cash until a confident signal deploys it."""
+        if amount <= 0:
+            raise ValueError("deposit amount must be positive")
+        self.cash += amount
+        self.contributed += amount
+        logger.info("deposit %.2f -> cash=%.2f", amount, self.cash)
+        return amount
+
+    def withdraw(self, amount: float) -> float:
+        """Take out capital. Only uninvested cash is withdrawable — money locked in
+        open positions must be closed first. Returns the amount actually withdrawn."""
+        if amount <= 0:
+            raise ValueError("withdraw amount must be positive")
+        taken = min(amount, self.cash)
+        self.cash -= taken
+        self.contributed -= taken
+        logger.info("withdraw %.2f (requested %.2f) -> cash=%.2f", taken, amount, self.cash)
+        return taken
 
     # --- pricing ---------------------------------------------------------
     def get_price(self, symbol: str) -> float:

@@ -177,10 +177,53 @@ class AIFOSKernel:
     def track_record(self) -> dict:
         """Honest forward paper performance since inception — the 'prove it' view."""
         from .analytics import track_record as _build
-        tr = _build(self.repo, self.broker.get_account(), settings.starting_capital)
+        contributed = float(getattr(self.broker, "contributed", settings.starting_capital))
+        tr = _build(self.repo, self.broker.get_account(), contributed)
         tr["mode"] = "live" if self.broker.is_live else "paper"
         tr["broker"] = self.broker.name
         return tr
+
+    def capital(self) -> dict:
+        """Where the money is: what you put in, what's safe in cash, what's deployed."""
+        acct = self.broker.get_account()
+        contributed = float(getattr(self.broker, "contributed", settings.starting_capital))
+        deployed = round(acct.equity - acct.cash, 2)  # value at work in open positions
+        return {
+            "contributed": round(contributed, 2),   # net you've added (deposits − withdrawals)
+            "equity": round(acct.equity, 2),         # total value right now
+            "cash": round(acct.cash, 2),             # uninvested — safe, not at risk
+            "deployed": deployed,                    # at risk in positions
+            "free_to_withdraw": round(acct.cash, 2), # only uninvested cash is withdrawable
+            "locked": deployed,                      # close positions to free this
+            "total_pnl": round(acct.equity - contributed, 2),
+            "return_pct": round((acct.equity / contributed - 1) * 100, 2) if contributed else 0.0,
+            "realized_pnl": round(acct.realized_pnl, 2),
+            "currency": acct.currency,
+            "mode": "live" if self.broker.is_live else "paper",
+        }
+
+    def deposit_funds(self, amount: float) -> dict:
+        if self.broker.is_live:
+            raise RuntimeError("live mode: add funds at your broker/demat account, not here")
+        if not hasattr(self.broker, "deposit"):
+            raise RuntimeError("this broker does not support in-app deposits")
+        self.broker.deposit(float(amount))
+        self.snapshot_equity()
+        self.bus.publish("control", {"event": "deposit", "amount": float(amount)})
+        return self.capital()
+
+    def withdraw_funds(self, amount: float) -> dict:
+        if self.broker.is_live:
+            raise RuntimeError("live mode: withdraw at your broker/demat account, not here")
+        if not hasattr(self.broker, "withdraw"):
+            raise RuntimeError("this broker does not support in-app withdrawals")
+        taken = self.broker.withdraw(float(amount))
+        self.snapshot_equity()
+        self.bus.publish("control", {"event": "withdraw", "amount": taken})
+        out = self.capital()
+        out["withdrawn"] = round(taken, 2)
+        out["requested"] = round(float(amount), 2)
+        return out
 
     def risk_snapshot(self) -> dict:
         snap = self.risk.snapshot()

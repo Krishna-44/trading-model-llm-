@@ -71,6 +71,10 @@ class ResetReq(BaseModel):
     confirm: bool = False  # must be true to wipe the paper track record
 
 
+class CapitalReq(BaseModel):
+    amount: float
+
+
 class VideoReq(BaseModel):
     url: str
 
@@ -205,6 +209,34 @@ async def track_record_reset_ep(req: ResetReq) -> dict:
         return {"ok": False,
                 "error": 'send {"confirm": true} to wipe the paper track record and restart the clock'}
     summary = await run_in_threadpool(get_kernel().reset_track_record)
+    return {"ok": True, **summary}
+
+
+@app.get("/api/capital")
+async def capital_ep() -> dict:
+    """Where the money is: net contributed, safe cash, and deployed-at-risk."""
+    return await run_in_threadpool(get_kernel().capital)
+
+
+@app.post("/api/capital/deposit")
+async def capital_deposit_ep(req: CapitalReq) -> dict:
+    if req.amount <= 0:
+        return {"ok": False, "error": "amount must be positive"}
+    try:
+        summary = await run_in_threadpool(get_kernel().deposit_funds, req.amount)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, **summary}
+
+
+@app.post("/api/capital/withdraw")
+async def capital_withdraw_ep(req: CapitalReq) -> dict:
+    if req.amount <= 0:
+        return {"ok": False, "error": "amount must be positive"}
+    try:
+        summary = await run_in_threadpool(get_kernel().withdraw_funds, req.amount)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
     return {"ok": True, **summary}
 
 

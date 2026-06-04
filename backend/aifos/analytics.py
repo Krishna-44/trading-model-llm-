@@ -132,7 +132,7 @@ def track_record(repo, account, starting_capital: float) -> dict:
         "days_running": days,
         "starting_capital": round(float(starting_capital), 2),
         "current_equity": equity_now,
-        "total_return": round(_safe(equity_now, starting_capital) - 1, 4),
+        "total_return": round(_safe(equity_now - starting_capital, starting_capital), 4),
         "realized_pnl": realized,
         "unrealized_pnl": unrealized,
         "daily_pnl": _window_pnl(curve, 1),

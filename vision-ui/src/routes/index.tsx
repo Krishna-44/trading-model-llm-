@@ -6,6 +6,7 @@ import { Fundamentals, Heatmap, Correlation, AllocationDonut } from "@/component
 import { NewsIntel, ExecutionEngine } from "@/components/aifos/News";
 import { PortfolioPanel, RiskEngine } from "@/components/aifos/Portfolio";
 import { TrackRecord } from "@/components/aifos/TrackRecord";
+import { CapitalPanel } from "@/components/aifos/Capital";
 import { ActivityFeed, TradeLog, useActivityFeed } from "@/components/aifos/Activity";
 import { AILab, PerformanceAnalytics } from "@/components/aifos/Lab";
 import { VisionDock } from "@/components/aifos/Vision";
@@ -54,7 +55,8 @@ function Dashboard() {
           <AnalysisPanels symbol={symbol} interval={interval} analysis={analysis} analyzing={analyzing} setAnalysis={() => {}} />
         </div>
 
-        <div className="col-span-12"><TrackRecord /></div>
+        <div className="col-span-12 lg:col-span-5"><CapitalPanel /></div>
+        <div className="col-span-12 lg:col-span-7"><TrackRecord /></div>
 
         <div className="col-span-12 md:col-span-6 lg:col-span-4"><Fundamentals symbol={symbol} /></div>
         <div className="col-span-12 md:col-span-6 lg:col-span-4"><Heatmap /></div>

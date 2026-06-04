@@ -9,6 +9,7 @@ import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
 import { StatusStrip } from "@/components/aifos/StatusStrip";
+import { SessionStrip } from "@/components/aifos/SessionStrip";
 import { VisionDock } from "@/components/aifos/Vision";
 import { api } from "@/lib/aifos/api";
 import { AlertTriangle } from "lucide-react";
@@ -50,6 +51,7 @@ function Dashboard() {
       />
       <NewsTicker />
       <StatusStrip />
+      <SessionStrip />
 
       <main className="px-4 md:px-6 py-4 grid grid-cols-12 gap-4">
         {/* the chart being traded + today's booked P&L right beneath it */}

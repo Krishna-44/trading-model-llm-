@@ -107,7 +107,8 @@ async def _autonomous_loop() -> None:
         if not k.autonomous or k.risk.kill_switch_active:
             continue
         try:
-            await run_in_threadpool(k.run_universe, True, settings.trading_interval)
+            # open_only=True -> 24/7 rotation: trade only markets that are currently open
+            await run_in_threadpool(k.run_universe, True, settings.trading_interval, True)
         except Exception:  # noqa: BLE001
             logger.exception("autonomous cycle error")
 
@@ -443,6 +444,12 @@ async def cycle(req: CycleReq) -> dict:
 
 
 # --- portfolio / risk / logs --------------------------------------------
+@app.get("/api/sessions")
+async def sessions_ep() -> dict:
+    """Global market-session status + current rotation focus (which markets are open)."""
+    return await run_in_threadpool(get_kernel().sessions)
+
+
 @app.get("/api/broker")
 async def broker_ep() -> dict:
     """Broker connection status — real account funds/positions when connected, and

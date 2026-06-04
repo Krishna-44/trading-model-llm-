@@ -221,15 +221,27 @@ class AIFOSKernel:
                 plan["stop"] = max(plan["stop"], trail) if long else min(plan["stop"], trail)
         return actions
 
-    def run_universe(self, execute: bool = True, interval: str | None = None) -> list[dict]:
+    def tradeable_now(self) -> list[str]:
+        """Universe symbols whose market is currently open (NSE hours / forex / crypto)."""
+        from .sessions import is_market_open
+        return [s for s in settings.universe if is_market_open(s)]
+
+    def sessions(self) -> dict:
+        """Global market-session status + the current rotation focus."""
+        from .sessions import session_status
+        return session_status(settings.universe)
+
+    def run_universe(self, execute: bool = True, interval: str | None = None,
+                     open_only: bool = False) -> list[dict]:
         out = []
         interval = interval or settings.default_interval
+        symbols = self.tradeable_now() if open_only else settings.universe
         if execute:
             try:
                 self.manage_positions()
             except Exception:  # noqa: BLE001
                 logger.exception("position management failed")
-        for sym in settings.universe:
+        for sym in symbols:
             try:
                 decision, fill = self.tick(sym, interval, execute=execute)
                 out.append({"symbol": sym, "action": decision.action,

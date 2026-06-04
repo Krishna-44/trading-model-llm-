@@ -14,6 +14,7 @@ const inr = (v: number | null | undefined) =>
 export function PaperTrading() {
   const { data, error } = useApi<any>("/api/pnl/breakdown", { base: PAPER_API_BASE, pollMs: 8000 });
   const { data: tdata } = useApi<any>("/api/trades", { base: PAPER_API_BASE, pollMs: 8000 });
+  const { data: pf } = useApi<any>("/api/portfolio", { base: PAPER_API_BASE, pollMs: 8000 });
 
   if (error && !data)
     return <Panel title="Paper Trading"><Empty>paper instance offline (:8001) — start it with <code className="text-foreground/80">scripts/paper-forward.sh status</code></Empty></Panel>;
@@ -25,6 +26,8 @@ export function PaperTrading() {
   const strats: any[] = data.by_strategy || [];
   const trades: any[] = (tdata?.trades || tdata || []).filter((x: any) => x?.realized_pnl);
   const has = (t.trades || 0) > 0;
+  const positions: any[] = pf?.positions || [];
+  const openUpnl = pf?.unrealized_pnl || 0;
 
   return (
     <Panel
@@ -44,6 +47,52 @@ export function PaperTrading() {
         <Stat k="Profit booked" v={inr(t.profit_booked)} tone="up" />
         <Stat k="Loss booked" v={inr(t.loss_booked)} tone="down" />
         <Stat k="Net booked" v={inr(t.net_booked)} tone={(t.net_booked || 0) >= 0 ? "up" : "down"} />
+      </div>
+
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[10px] uppercase text-muted-foreground">Open positions · live</div>
+          {positions.length > 0 && (
+            <span className={`num text-[11px] ${openUpnl >= 0 ? "text-[color:var(--up)]" : "text-[color:var(--down)]"}`}>
+              open uPnL {inr(openUpnl)}
+            </span>
+          )}
+        </div>
+        {positions.length === 0 ? (
+          <div className="text-[11px] text-muted-foreground/60 italic px-2 py-1.5 border border-border rounded bg-secondary/10">
+            flat — no open positions right now (the loop opens them when conviction clears the bar)
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-md border border-border">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="bg-secondary/30 text-muted-foreground text-[9px] uppercase tracking-wide">
+                  <th className="text-left font-medium px-2 py-1">Symbol</th>
+                  <th className="text-left font-medium px-2 py-1">Side</th>
+                  <th className="text-right font-medium px-2 py-1">Qty</th>
+                  <th className="text-right font-medium px-2 py-1">Avg</th>
+                  <th className="text-right font-medium px-2 py-1">Live uPnL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p: any, i: number) => {
+                  const long = (p.qty || 0) >= 0;
+                  return (
+                    <tr key={i} className="border-t border-border/50">
+                      <td className="px-2 py-1 font-medium">{p.symbol}</td>
+                      <td className="px-2 py-1"><Chip tone={long ? "up" : "down"}>{long ? "long" : "short"}</Chip></td>
+                      <td className="px-2 py-1 text-right num">{fmt.n(Math.abs(p.qty || 0), 4)}</td>
+                      <td className="px-2 py-1 text-right num">{fmt.n(p.avg_price, 2)}</td>
+                      <td className={`px-2 py-1 text-right num ${(p.unrealized_pnl || 0) >= 0 ? "text-[color:var(--up)]" : "text-[color:var(--down)]"}`}>
+                        {inr(p.unrealized_pnl)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {!has ? (

@@ -1,18 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Header, ControlBar, NewsTicker } from "@/components/aifos/Shell";
-import { ChartPanel, AnalysisPanels, useAnalyze } from "@/components/aifos/Analysis";
-import { Fundamentals, Heatmap } from "@/components/aifos/Market";
-import { NewsIntel, ExecutionEngine } from "@/components/aifos/News";
-import { PortfolioPanel, RiskEngine } from "@/components/aifos/Portfolio";
-import { TrackRecord } from "@/components/aifos/TrackRecord";
-import { CapitalPanel } from "@/components/aifos/Capital";
-import { Deployment } from "@/components/aifos/Deployment";
-import { LearningPanel } from "@/components/aifos/Learning";
+import { ChartPanel, useAnalyze } from "@/components/aifos/Analysis";
+import { NewsIntel } from "@/components/aifos/News";
+import { PortfolioPanel } from "@/components/aifos/Portfolio";
+import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
-import { ReasoningTree } from "@/components/aifos/ReasoningTree";
-import { OptionsChain } from "@/components/aifos/OptionsChain";
-import { ActivityFeed, TradeLog, useActivityFeed } from "@/components/aifos/Activity";
 import { VisionDock } from "@/components/aifos/Vision";
 import { api } from "@/lib/aifos/api";
 import { AlertTriangle } from "lucide-react";
@@ -29,11 +22,14 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
+// Minimal operational view: live news · the chart being traded · today's P&L ·
+// what's been bought/sold · positions & P&L. All other intelligence (committee,
+// reasoning, regime, SMC, options engine, readiness, self-learning) keeps running
+// in the backend — it's just not shown on this screen.
 function Dashboard() {
   const [symbol, setSymbol] = useState("^NSEI");
   const [interval, setInterval] = useState("1d");
-  const { analysis, analyzing, run } = useAnalyze();
-  const activity = useActivityFeed();
+  const { analyzing, run } = useAnalyze();
 
   const onBacktest = async () => { try { await api(`/api/backtest`, { method: "POST", body: JSON.stringify({ symbol, interval }) }); } catch {} };
   const onCycle = async () => { try { await api(`/api/control/cycle`, { method: "POST", body: JSON.stringify({ symbol, interval }) }); } catch {} };
@@ -52,35 +48,18 @@ function Dashboard() {
       <NewsTicker />
 
       <main className="px-4 md:px-6 py-4 grid grid-cols-12 gap-4">
-        {/* Chart + today's booked P&L directly beneath it */}
+        {/* the chart being traded + today's booked P&L right beneath it */}
         <div className="col-span-12 lg:col-span-8 flex flex-col gap-4">
           <div className="h-[440px]"><ChartPanel symbol={symbol} interval={interval} /></div>
           <TodayPanel />
         </div>
-        <div className="col-span-12 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
-          <AnalysisPanels symbol={symbol} interval={interval} analysis={analysis} analyzing={analyzing} setAnalysis={() => {}} />
-        </div>
 
-        <div className="col-span-12 lg:col-span-5"><CapitalPanel /></div>
-        <div className="col-span-12 lg:col-span-7"><TrackRecord /></div>
+        {/* live news */}
+        <div className="col-span-12 lg:col-span-4"><NewsIntel symbol={symbol} /></div>
 
-        <div className="col-span-12 lg:col-span-7"><Deployment /></div>
-        <div className="col-span-12 lg:col-span-5"><LearningPanel /></div>
-
-        <div className="col-span-12"><ReasoningTree symbol={symbol} /></div>
-
-        <div className="col-span-12 lg:col-span-6"><OptionsChain symbol={symbol} /></div>
-        <div className="col-span-12 lg:col-span-6"><NewsIntel symbol={symbol} /></div>
-
-        <div className="col-span-12 md:col-span-6"><Fundamentals symbol={symbol} /></div>
-        <div className="col-span-12 md:col-span-6"><Heatmap /></div>
-
+        {/* what's been bought/sold + running P&L */}
         <div className="col-span-12 lg:col-span-5"><PortfolioPanel /></div>
-        <div className="col-span-12 lg:col-span-4"><RiskEngine /></div>
-        <div className="col-span-12 lg:col-span-3"><ExecutionEngine /></div>
-
         <div className="col-span-12 lg:col-span-7"><TradeLog /></div>
-        <div className="col-span-12 lg:col-span-5"><ActivityFeed items={activity} /></div>
       </main>
 
       <footer className="px-4 md:px-6 py-6 border-t border-border bg-background/60 backdrop-blur-md mt-4 mb-24">

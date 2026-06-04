@@ -91,3 +91,16 @@ class ExtractedStrategyRecord(Base):
     mapped_template: Mapped[str] = mapped_column(String(32), default="")
     clarity: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[str] = mapped_column(String(12), default="review")  # review | approved | rejected
+
+
+class VideoJobRecord(Base):
+    """A submitted video link — the dashboard queue the n8n pipeline reads from and
+    writes results back to. Lifecycle: queued -> processing -> done | error."""
+    __tablename__ = "video_jobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    url: Mapped[str] = mapped_column(String(512), default="")
+    title: Mapped[str] = mapped_column(String(160), default="")
+    status: Mapped[str] = mapped_column(String(12), default="queued")  # queued|processing|done|error
+    note: Mapped[str] = mapped_column(String(256), default="")
+    extracted_id: Mapped[int] = mapped_column(Integer, default=0)  # -> extracted_strategies.id

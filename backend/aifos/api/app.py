@@ -377,6 +377,30 @@ async def strategies_extracted_list() -> dict:
     return await run_in_threadpool(get_kernel().list_extracted)
 
 
+# --- video queue: the dashboard table wired to the n8n pipeline -----------
+@app.post("/api/strategies/videos")
+async def videos_submit(payload: dict) -> dict:
+    """A link pasted into the dashboard table — queues it for extraction."""
+    return await run_in_threadpool(get_kernel().submit_video, payload.get("url", ""))
+
+
+@app.get("/api/strategies/videos")
+async def videos_list() -> dict:
+    return await run_in_threadpool(get_kernel().list_videos)
+
+
+@app.get("/api/strategies/videos/queued")
+async def videos_queued(limit: int = 5) -> dict:
+    """n8n polls this — returns queued jobs and atomically claims them (processing)."""
+    return await run_in_threadpool(get_kernel().claim_videos, limit)
+
+
+@app.post("/api/strategies/videos/{job_id}/result")
+async def videos_result(job_id: int, payload: dict) -> dict:
+    """n8n writes the extracted strategy JSON (or {error}) back for a job."""
+    return await run_in_threadpool(get_kernel().video_result, job_id, payload)
+
+
 @app.get("/api/candle-read")
 async def candle_read_ep(symbol: str = settings.default_symbol,
                          interval: str = settings.default_interval) -> dict:

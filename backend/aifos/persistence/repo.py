@@ -11,6 +11,7 @@ from .models import (
     JournalEntry,
     OptionPositionRecord,
     TradeRecord,
+    VideoJobRecord,
 )
 
 
@@ -151,3 +152,40 @@ class Repository:
                 select(ExtractedStrategyRecord).order_by(desc(ExtractedStrategyRecord.ts)).limit(limit)
             ).scalars().all()
             return [_row(r) for r in rows]
+
+    # --- video job queue (the dashboard table n8n is wired to) ----------
+    def save_video(self, url: str, title: str = "") -> int:
+        with get_session() as s:
+            rec = VideoJobRecord(url=url, title=title)
+            s.add(rec)
+            s.flush()
+            return rec.id
+
+    def list_videos(self, limit: int = 50) -> list[dict]:
+        with get_session() as s:
+            rows = s.execute(
+                select(VideoJobRecord).order_by(desc(VideoJobRecord.ts)).limit(limit)
+            ).scalars().all()
+            return [_row(r) for r in rows]
+
+    def claim_queued_videos(self, limit: int = 5) -> list[dict]:
+        """Atomically hand out queued jobs to a poller (queued -> processing) so the
+        same link is never processed twice. Returns the claimed rows."""
+        with get_session() as s:
+            rows = s.execute(
+                select(VideoJobRecord)
+                .where(VideoJobRecord.status == "queued")
+                .order_by(VideoJobRecord.ts).limit(limit)
+            ).scalars().all()
+            claimed = []
+            for r in rows:
+                r.status = "processing"
+                claimed.append(_row(r))
+            return claimed
+
+    def update_video(self, vid: int, **kw) -> None:
+        with get_session() as s:
+            row = s.get(VideoJobRecord, int(vid))
+            if row:
+                for k, v in kw.items():
+                    setattr(row, k, v)

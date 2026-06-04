@@ -7,6 +7,7 @@ import { HoldingsPanel } from "@/components/aifos/Holdings";
 import { BrokerPanel } from "@/components/aifos/Broker";
 import { OptionsLab } from "@/components/aifos/OptionsLab";
 import { StrategyMarket } from "@/components/aifos/StrategyMarket";
+import { VideoStrategies } from "@/components/aifos/VideoStrategies";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
@@ -72,6 +73,9 @@ function Dashboard() {
         <div className="col-span-12 lg:col-span-4"><BrokerPanel /></div>
         <div className="col-span-12 lg:col-span-8"><HoldingsPanel /></div>
         <div className="col-span-12"><TradeLog /></div>
+
+        {/* video → strategy queue (n8n-wired) feeding the marketplace inbox */}
+        <div className="col-span-12"><VideoStrategies /></div>
 
         {/* strategy marketplace — backtested + ranked, enable/disable */}
         <div className="col-span-12"><StrategyMarket symbol={symbol} /></div>

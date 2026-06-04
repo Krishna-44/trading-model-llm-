@@ -566,6 +566,38 @@ class AIFOSKernel:
     def list_extracted(self) -> dict:
         return {"extracted": self.repo.list_extracted()}
 
+    # --- video queue: the dashboard table n8n reads + writes back to -----
+    def submit_video(self, url: str) -> dict:
+        """A link pasted into the dashboard table — queue it for the n8n pipeline."""
+        url = (url or "").strip()
+        if not url:
+            return {"ok": False, "error": "empty url"}
+        vid = self.repo.save_video(url=url)
+        self.bus.publish("control", {"event": "video_queued", "url": url})
+        return {"ok": True, "id": vid, "url": url, "status": "queued"}
+
+    def list_videos(self) -> dict:
+        return {"videos": self.repo.list_videos()}
+
+    def claim_videos(self, limit: int = 5) -> dict:
+        """n8n polls this — atomically claims queued jobs (queued -> processing)."""
+        return {"videos": self.repo.claim_queued_videos(int(limit))}
+
+    def video_result(self, job_id: int, payload: dict) -> dict:
+        """n8n writes the extracted strategy (or an error) back for a job. On success
+        we ingest + backtest it and flip the row to done; otherwise mark it error."""
+        job_id = int(job_id)
+        err = payload.get("error") if isinstance(payload, dict) else None
+        if err or not isinstance(payload, dict):
+            self.repo.update_video(job_id, status="error", note=str(err or "bad payload")[:240])
+            return {"ok": False, "job_id": job_id, "error": str(err or "bad payload")}
+        res = self.ingest_extracted(payload)
+        self.repo.update_video(
+            job_id, status="done", extracted_id=int(res.get("id") or 0),
+            title=str(res.get("strategy_name") or "")[:160],
+            note=f"{res.get('mapped_template', '?')} · clarity {round((res.get('clarity') or 0) * 100)}%")
+        return {"ok": True, "job_id": job_id, **res}
+
     def strategy_live_stats(self) -> dict:
         """Realized paper/live performance per strategy — the forward signal of what
         actually works, attributed by the strategy that opened each closed trade."""

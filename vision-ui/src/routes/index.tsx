@@ -7,6 +7,7 @@ import { HoldingsPanel } from "@/components/aifos/Holdings";
 import { BrokerPanel } from "@/components/aifos/Broker";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
+import { CandleRead } from "@/components/aifos/CandleRead";
 import { StatusStrip } from "@/components/aifos/StatusStrip";
 import { VisionDock } from "@/components/aifos/Vision";
 import { api } from "@/lib/aifos/api";
@@ -57,8 +58,11 @@ function Dashboard() {
           <TodayPanel />
         </div>
 
-        {/* live news */}
-        <div className="col-span-12 lg:col-span-4"><NewsIntel symbol={symbol} /></div>
+        {/* live news + a candlestick learning read of the chart */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
+          <NewsIntel symbol={symbol} />
+          <CandleRead symbol={symbol} interval={interval} />
+        </div>
 
         {/* broker connection + holdings by asset class + trade log */}
         <div className="col-span-12 lg:col-span-4"><BrokerPanel /></div>

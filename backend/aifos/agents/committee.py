@@ -17,6 +17,7 @@ from ..config import settings
 from ..risk import RiskEngine
 from ..regime import regime_weight_multiplier
 from .analysts import (
+    CandlestickAgent,
     MacroAgent,
     MarketAnalystAgent,
     NewsAgent,
@@ -47,9 +48,9 @@ class AgentCommittee:
     def __init__(self) -> None:
         self.evolution = StrategyEvolutionAgent()
         self.voters = [
-            MarketAnalystAgent(), SmartMoneyAgent(), FundamentalsAgent(), SentimentAgent(),
-            NewsAgent(), MacroAgent(), RiskManagerAgent(), PortfolioOptimizerAgent(),
-            ComplianceAgent(),
+            MarketAnalystAgent(), SmartMoneyAgent(), CandlestickAgent(), FundamentalsAgent(),
+            SentimentAgent(), NewsAgent(), MacroAgent(), RiskManagerAgent(),
+            PortfolioOptimizerAgent(), ComplianceAgent(),
         ]
         self.llm = get_llm()
 

@@ -168,3 +168,22 @@ class SmartMoneyAgent(Agent):
              "swing_low": struct.get("last_swing_low"),
              "swing_high": struct.get("last_swing_high")},
         )
+
+
+class CandlestickAgent(Agent):
+    """Classic candlestick patterns — a light, informational read of price psychology."""
+    name = "Candlestick"
+    weight = 0.3
+
+    def analyze(self, ctx: MarketContext) -> AgentOpinion:
+        cr = ctx.extra.get("candles")
+        if cr is None:
+            from ..indicators.candles import candle_read
+            cr = candle_read(ctx.df)
+        score = float(cr.get("score", 0.0))
+        return AgentOpinion(
+            self.name, cr.get("bias", "neutral"),
+            float(np.clip(abs(score), 0.0, 0.7)), self.weight,
+            f"Candles: {cr.get('summary', 'no pattern')}.",
+            {"patterns": [p["name"] for p in cr.get("patterns", [])], "score": score},
+        )

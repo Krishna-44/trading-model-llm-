@@ -81,14 +81,16 @@ class AIFOSKernel:
         exposure = sum(abs(p.market_value) for p in positions)
         vol = df["volume"].tail(20)
         adv = float((vol * df["close"].tail(20)).mean()) if float(vol.sum()) > 0 else None
+        from .indicators.candles import candle_read
         from .indicators.smc import smc_signals
         from .regime import detect_regime
         extra: dict = {"interval": interval}
         try:
             extra["regime"] = detect_regime(df)
             extra["smc"] = smc_signals(df)
+            extra["candles"] = candle_read(df)
         except Exception:  # noqa: BLE001 - context enrichment must never break a cycle
-            logger.exception("regime/smc computation failed for %s", symbol)
+            logger.exception("regime/smc/candles computation failed for %s", symbol)
         return MarketContext(
             symbol=symbol, asset_class=classify_asset(symbol).value, df=df, price=price,
             atr=atr_val, equity=acct.equity, open_positions=len(positions),
@@ -435,6 +437,7 @@ class AIFOSKernel:
             "regime": ctx.extra.get("regime", {}),
             "smc": {"bias": smc.get("bias"), "score": smc.get("score"),
                     "reasoning": smc.get("reasoning"), "components": smc.get("components", {})},
+            "candles": ctx.extra.get("candles", {}),
             "indicators": ind,
             "agents": [o.to_dict() for o in decision.opinions],
             "drivers": [o.agent for o in drivers[:3]],

@@ -309,6 +309,15 @@ async def correlation(interval: str = settings.default_interval) -> dict:
         lambda: correlation_matrix(get_kernel().provider, settings.universe, interval))
 
 
+@app.get("/api/candle-read")
+async def candle_read_ep(symbol: str = settings.default_symbol,
+                         interval: str = settings.default_interval) -> dict:
+    """Detected candlestick patterns + plain-English meaning (a learning aid)."""
+    from ..indicators.candles import candle_read
+    k = get_kernel()
+    return await run_in_threadpool(lambda: candle_read(k.provider.history(symbol, interval)))
+
+
 @app.get("/api/market/heatmap")
 async def heatmap(interval: str = settings.default_interval) -> dict:
     from ..analytics import market_heatmap

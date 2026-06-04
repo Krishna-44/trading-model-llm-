@@ -433,6 +433,12 @@ async def cycle(req: CycleReq) -> dict:
 
 
 # --- portfolio / risk / logs --------------------------------------------
+@app.get("/api/holdings")
+async def holdings_ep() -> dict:
+    """Open positions + invested capital by asset class (stocks/forex/crypto/options)."""
+    return await run_in_threadpool(get_kernel().holdings)
+
+
 @app.get("/api/portfolio")
 async def portfolio() -> dict:
     return await run_in_threadpool(get_kernel().portfolio)

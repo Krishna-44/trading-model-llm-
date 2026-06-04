@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Header, ControlBar, NewsTicker } from "@/components/aifos/Shell";
 import { ChartPanel, useAnalyze } from "@/components/aifos/Analysis";
 import { NewsIntel } from "@/components/aifos/News";
-import { PortfolioPanel } from "@/components/aifos/Portfolio";
+import { HoldingsPanel } from "@/components/aifos/Holdings";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { StatusStrip } from "@/components/aifos/StatusStrip";
@@ -59,9 +59,9 @@ function Dashboard() {
         {/* live news */}
         <div className="col-span-12 lg:col-span-4"><NewsIntel symbol={symbol} /></div>
 
-        {/* what's been bought/sold + running P&L */}
-        <div className="col-span-12 lg:col-span-5"><PortfolioPanel /></div>
-        <div className="col-span-12 lg:col-span-7"><TradeLog /></div>
+        {/* under news: what's bought + how much is invested by asset class, and the trade log */}
+        <div className="col-span-12 lg:col-span-7"><HoldingsPanel /></div>
+        <div className="col-span-12 lg:col-span-5"><TradeLog /></div>
       </main>
 
       <footer className="px-4 md:px-6 py-6 border-t border-border bg-background/60 backdrop-blur-md mt-4 mb-24">

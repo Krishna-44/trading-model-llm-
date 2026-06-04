@@ -301,6 +301,46 @@ class AIFOSKernel:
             "mode": "live" if self.broker.is_live else "paper",
         }
 
+    def holdings(self) -> dict:
+        """Open positions grouped by asset class — how much is invested in stocks,
+        forex, crypto, etc. Options are always ₹0 (the system holds no options:
+        there is no NSE options execution feed)."""
+        from .data.models import classify_asset
+        acct = self.broker.get_account()
+        positions = [p.to_dict() for p in self.broker.get_positions()]
+        buckets: dict[str, dict] = {}
+        for p in positions:
+            cls = classify_asset(p["symbol"]).value
+            invested = round(abs(p["qty"]) * p["avg_price"], 2)
+            p["asset_class"] = cls
+            p["invested"] = invested
+            b = buckets.setdefault(cls, {"invested": 0.0, "market_value": 0.0,
+                                         "unrealized_pnl": 0.0, "count": 0})
+            b["invested"] += invested
+            b["market_value"] += abs(p["market_value"])
+            b["unrealized_pnl"] += p["unrealized_pnl"]
+            b["count"] += 1
+        total = round(sum(b["invested"] for b in buckets.values()), 2)
+        labels = {"equity": "Stocks", "forex": "Forex", "crypto": "Crypto",
+                  "index": "Index", "options": "Options"}
+        by_class = []
+        for key in ("equity", "forex", "crypto", "index", "options"):
+            b = buckets.get(key, {"invested": 0.0, "market_value": 0.0, "unrealized_pnl": 0.0, "count": 0})
+            by_class.append({
+                "key": key, "label": labels[key],
+                "invested": round(b["invested"], 2), "market_value": round(b["market_value"], 2),
+                "unrealized_pnl": round(b["unrealized_pnl"], 2), "count": b["count"],
+                "pct": round(b["invested"] / total * 100, 1) if total else 0.0,
+            })
+        return {
+            "mode": "live" if self.broker.is_live else "paper",
+            "equity": round(acct.equity, 2), "cash": round(acct.cash, 2),
+            "total_invested": total, "by_class": by_class,
+            "positions": sorted(positions, key=lambda x: abs(x.get("market_value", 0.0)), reverse=True),
+            "recent_trades": self.repo.recent_trades(10),
+            "note": "Options = ₹0: the system trades stocks / forex / crypto only (no NSE options feed).",
+        }
+
     def deposit_funds(self, amount: float) -> dict:
         if self.broker.is_live:
             raise RuntimeError("live mode: add funds at your broker/demat account, not here")

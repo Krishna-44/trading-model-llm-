@@ -1,0 +1,10 @@
+# Heavy ML / RL research stack — OPTIONAL extensions, not needed to run AIFOS.
+# Recommended: a separate venv. On Apple Silicon, PyTorch uses the MPS backend.
+# These power the reinforcement-learning strategy search and deep forecasting
+# described in ARCHITECTURE.md (Phase 3+); the core platform runs without them.
+
+torch>=2.2                # MPS-accelerated on Apple Silicon
+stable-baselines3>=2.3    # PPO/DQN agents for RL strategy search
+gymnasium>=0.29           # trading environment interface
+scikit-learn>=1.4         # classical ML baselines, feature pipelines
+# Layer on as needed: finrl, qlib, prophet, transformers, ray[rllib]

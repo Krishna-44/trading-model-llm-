@@ -1,0 +1,3 @@
+# OPTIONAL AI video-learning pipeline (stage 1: transcript + extraction).
+# Light, pure-python. Chart-frame CV/OCR (stage 2) would add opencv/pytesseract.
+youtube-transcript-api>=0.6

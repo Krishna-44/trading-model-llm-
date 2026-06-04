@@ -1,0 +1,9 @@
+# OPTIONAL OpenBB research layer.
+# The fundamentals features in AIFOS work WITHOUT this (free via yfinance).
+# Installing OpenBB adds 350+ standardized financial-data endpoints and many
+# providers (FMP, Intrinio, FRED, SEC, ...). It is a HEAVY install with a large
+# dependency tree — use a SEPARATE venv to avoid disturbing the lean core.
+#
+#   python3.11 -m venv .venv-research && ./.venv-research/bin/pip install -r requirements-research.txt
+#
+openbb>=4.3

@@ -1,0 +1,26 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/.cache/
+backend/aifos.db
+*.db
+
+# Env / secrets — NEVER commit broker credentials
+.env
+.env.local
+*.pem
+
+# Node / Next
+node_modules/
+frontend/.next/
+frontend/out/
+npm-debug.log*
+
+# External reference repos (studied, not part of the build)
+.external/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

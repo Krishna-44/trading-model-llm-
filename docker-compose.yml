@@ -1,0 +1,47 @@
+# Full AIFOS stack: durable Postgres/TimescaleDB + Redis + local LLM + API + UI.
+# For local dev you do NOT need this — `make backend` + `make frontend` runs the
+# whole platform on SQLite with zero infra. Compose is the "production-shaped" run.
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: aifos
+      POSTGRES_PASSWORD: aifos
+      POSTGRES_DB: aifos
+    ports: ["5432:5432"]
+    volumes: ["aifos_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aifos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: ["aifos_ollama:/root/.ollama"]
+
+  backend:
+    build: ./backend
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      AIFOS_DATABASE_URL: postgresql+psycopg://aifos:aifos@db:5432/aifos
+      AIFOS_OLLAMA_BASE_URL: http://ollama:11434
+      AIFOS_LIVE_TRADING_ENABLED: "false"
+    ports: ["8000:8000"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args: { NEXT_PUBLIC_AIFOS_API: "http://localhost:8000" }
+    depends_on: [backend]
+    ports: ["3000:3000"]
+
+volumes:
+  aifos_pg:
+  aifos_ollama:

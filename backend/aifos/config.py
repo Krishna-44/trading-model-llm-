@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -121,10 +121,17 @@ class Settings(BaseSettings):
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
     ]
 
-    # --- LLM agent layer (augments deterministic quant; optional) ---
-    llm_provider: str = "ollama"  # ollama | anthropic | openai | none
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1"
+    # --- LLM agent layer (LOCAL-FIRST: Ollama primary, cloud optional) ---
+    # Priority is Ollama (local, free) → cloud (Anthropic/OpenAI/Gemini) →
+    # deterministic/keyword fallback. The trading math never depends on the LLM.
+    # Both AIFOS_-prefixed and bare names (OLLAMA_MODEL, ...) are accepted.
+    llm_provider: str = Field(
+        "ollama", validation_alias=AliasChoices("AIFOS_LLM_PROVIDER", "LLM_PROVIDER"))
+    ollama_base_url: str = Field(
+        "http://localhost:11434",
+        validation_alias=AliasChoices("AIFOS_OLLAMA_BASE_URL", "OLLAMA_BASE_URL"))
+    ollama_model: str = Field(
+        "llama3.1", validation_alias=AliasChoices("AIFOS_OLLAMA_MODEL", "OLLAMA_MODEL"))
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     llm_timeout_s: float = 20.0

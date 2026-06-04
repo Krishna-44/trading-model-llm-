@@ -139,5 +139,29 @@ See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the full design, data model, RL/L
 
 ## Optional power-ups
 
-- **Local LLM reasoning** — `ollama serve` + `ollama pull llama3.1`. The committee will write natural-language desk rationales; without it, a deterministic summary is used. (Set `AIFOS_LLM_PROVIDER=anthropic|openai` to use a hosted model.)
+- **Local LLM (Ollama) — free, no billing, runs on your machine.** AIFOS is
+  **local-first**: the LLM priority is **Ollama → cloud (Anthropic/OpenAI/Gemini) →
+  on-device keyword fallback**, so nothing breaks if no model is running. It powers the
+  **Video → Strategy** extractor and Vision's open-ended answers.
+
+  ```bash
+  brew services start ollama     # persistent; or `ollama serve` for a foreground run
+  ollama pull llama3             # or: mistral, phi3 (lightweight)   ·   ollama list
+  ```
+  Then in `backend/.env`:
+  ```ini
+  AIFOS_LLM_PROVIDER=ollama
+  AIFOS_OLLAMA_MODEL=llama3       # must match a model you've pulled
+  # AIFOS_OLLAMA_BASE_URL=http://localhost:11434   (default)
+  ```
+  Switch models by pulling another and changing `AIFOS_OLLAMA_MODEL`. Verify it's live:
+  AIFOS logs `LLM ollama:<model> ok in N.Ns` per call, and the Video → Strategy row shows
+  `via ollama` (vs `via keywords` when it fell back). Bare names (`OLLAMA_MODEL`) also work.
+  Set `AIFOS_LLM_PROVIDER=anthropic|openai` (with a key) to use a hosted model instead.
+
+  **Match the model to your GPU.** On a GPU with **< 8 GB** (e.g. an 8 GB Apple Silicon
+  Mac, ~5 GB usable), prefer **`phi3`** (3.8B) — `llama3` 8B spills to CPU and is slow
+  (extractions can exceed 3 min and time out → keyword fallback). With ≥ 12 GB, `llama3`
+  or `mistral` give richer extractions. If a call times out, AIFOS logs it and falls back
+  safely — it never hangs the request indefinitely.
 - **ML/RL research stack** — `pip install -r backend/requirements-ml.txt` (PyTorch/SB3/Gymnasium) for the reinforcement-learning strategy search described in the architecture. Not required to run the platform.

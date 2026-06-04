@@ -288,8 +288,10 @@ def answer(kernel, question: str) -> dict:
     if local is not None:
         return {"answer": local, "engine": "local", "symbol": sym}
 
-    # open-ended only: use an LLM if (and only if) a working key is configured
-    out = _groq(question, _help()) or _gemini(question, _help())
-    if not out and get_llm().available():
+    # open-ended only: LOCAL-FIRST — try Ollama (free, no billing), then cloud keys
+    out = None
+    if get_llm().available():
         out = get_llm().generate(question, _help())
+    if not out:
+        out = _groq(question, _help()) or _gemini(question, _help())
     return {"answer": out or _help(), "engine": "llm" if out else "local", "symbol": sym}

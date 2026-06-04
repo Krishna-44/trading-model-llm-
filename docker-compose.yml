@@ -24,14 +24,19 @@ services:
     image: ollama/ollama:latest
     ports: ["11434:11434"]
     volumes: ["aifos_ollama:/root/.ollama"]
+    # After `docker compose up`, pull a model into this service once:
+    #   docker compose exec ollama ollama pull llama3   (or mistral / phi3)
 
   backend:
     build: ./backend
     depends_on:
       db: { condition: service_healthy }
+      ollama: { condition: service_started }
     environment:
       AIFOS_DATABASE_URL: postgresql+psycopg://aifos:aifos@db:5432/aifos
+      AIFOS_LLM_PROVIDER: ollama
       AIFOS_OLLAMA_BASE_URL: http://ollama:11434
+      AIFOS_OLLAMA_MODEL: llama3
       AIFOS_LIVE_TRADING_ENABLED: "false"
     ports: ["8000:8000"]
 

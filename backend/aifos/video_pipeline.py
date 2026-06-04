@@ -155,15 +155,19 @@ def _heuristic_extract(transcript: str, title: str) -> dict:
 
 
 def _agentllm_extract(transcript: str, title: str) -> dict | None:
-    """Try AIFOS's configured LLM (Ollama/Anthropic/OpenAI) — free + no billing if
-    Ollama is running locally. Returns None if no provider is reachable."""
+    """Primary path: AIFOS's configured LLM — Ollama (local, free) by default, or
+    Anthropic/OpenAI. JSON-constrained. Returns None if no provider is reachable."""
     from .agents.llm import get_llm
     llm = get_llm()
     if not llm.available():
         return None
+    # Keep the job light enough for CPU-only inference (low-VRAM machines): a
+    # trimmed transcript + a small output budget (the JSON is short). Cap the call
+    # at 60s with no retry so a too-slow box falls back to keywords promptly
+    # instead of hanging — on a GPU box 60s is ample for this size.
     out = llm.generate(
-        f"Video title: {title}\n\nTranscript:\n{transcript[:8000]}\n\nReturn ONLY the JSON object.",
-        _SYS)
+        f"Video title: {title}\n\nTranscript:\n{transcript[:4500]}\n\nReturn ONLY the JSON object.",
+        _SYS, want_json=True, max_tokens=400, timeout=60.0, retries=0)
     if not out:
         return None
     try:
@@ -217,11 +221,11 @@ def _ok(p) -> bool:
 
 
 def extract_strategy(transcript: str, title: str = "", url: str = "") -> tuple[dict, str]:
-    """Return (payload, source). Tries Gemini → AIFOS LLM (Ollama/etc.) → on-device
-    keyword extractor, so it always produces an honest result."""
-    payload, source = _gemini_extract(transcript, title), "gemini"
+    """Return (payload, source). Provider priority: local Ollama (primary) → cloud
+    Gemini → on-device keyword extractor, so it always produces an honest result."""
+    payload, source = _agentllm_extract(transcript, title), settings.llm_provider.lower()
     if not _ok(payload):
-        payload, source = _agentllm_extract(transcript, title), "llm"
+        payload, source = _gemini_extract(transcript, title), "gemini"
     if not _ok(payload):
         payload, source = _heuristic_extract(transcript, title), "keywords"
     low = transcript.lower()

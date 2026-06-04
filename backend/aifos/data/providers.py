@@ -44,6 +44,10 @@ class MarketDataProvider(abc.ABC):
             raise ValueError(f"no data for {symbol}")
         return float(df["close"].iloc[-1])
 
+    def latest_quote(self, symbol: str) -> float:
+        """Live-ish last price for mark-to-market; subclasses may use a faster source."""
+        return self.latest_price(symbol)
+
 
 class YFinanceProvider(MarketDataProvider):
     name = "yfinance"
@@ -51,6 +55,8 @@ class YFinanceProvider(MarketDataProvider):
     def __init__(self, cache_ttl_s: int = 900) -> None:
         self.cache_ttl_s = cache_ttl_s
         self._mem: dict[str, tuple[float, pd.DataFrame]] = {}
+        self._quote_cache: dict[str, tuple[float, float]] = {}
+        self.quote_ttl_s = 60  # live-quote freshness for real-time mark-to-market
         os.makedirs(settings.data_cache_dir, exist_ok=True)
 
     # --- caching ---------------------------------------------------------
@@ -93,6 +99,23 @@ class YFinanceProvider(MarketDataProvider):
             df = _synthetic_series(symbol, interval)
         self._write_cache(key, df)
         return df
+
+    def latest_quote(self, symbol: str) -> float:
+        """Most-recent price for real-time mark-to-market: a 1-minute bar, short-cached
+        (~60s). As live as the source allows — near-real-time for 24/7 crypto, the last
+        session's close for a shut market. Falls back to the bar-history close."""
+        hit = self._quote_cache.get(symbol)
+        if hit and (time.time() - hit[0]) < self.quote_ttl_s:
+            return hit[1]
+        try:
+            df = self._fetch_yf(symbol, "1m", "1d")
+            if df is not None and not df.empty:
+                px = float(df["close"].iloc[-1])
+                self._quote_cache[symbol] = (time.time(), px)
+                return px
+        except Exception:  # noqa: BLE001
+            pass
+        return self.latest_price(symbol)
 
     def _fetch_yf(self, symbol: str, interval: str, period: str) -> pd.DataFrame | None:
         try:

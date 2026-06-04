@@ -340,6 +340,8 @@ class AIFOSKernel:
         realized = [float(t.get("realized_pnl", 0.0) or 0.0) for t in todays]
         profit = round(sum(x for x in realized if x > 0), 2)
         loss = round(sum(x for x in realized if x < 0), 2)  # negative
+        positions = self.broker.get_positions()
+        unrealized = round(sum(p.to_dict().get("unrealized_pnl", 0.0) for p in positions), 2)
         cap = self.capital()
         return {
             "date": day.isoformat(),
@@ -347,6 +349,9 @@ class AIFOSKernel:
             "loss_today": loss,
             "loss_today_abs": round(abs(loss), 2),
             "booked_today": round(profit + loss, 2),
+            "unrealized_pnl": unrealized,                       # real-time floating P&L (open positions)
+            "open_positions": len(positions),
+            "live_pnl_today": round(profit + loss + unrealized, 2),
             "trades_today": len(todays),
             "deployed": cap["deployed"],          # capital used from the wallet
             "deployed_pct": round((cap["deployed"] / cap["contributed"] * 100) if cap["contributed"] else 0.0, 2),

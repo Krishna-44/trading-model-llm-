@@ -14,7 +14,7 @@ export function StatusStrip() {
   const total = r.total ?? 6;
   const pct = total ? Math.round((passed / total) * 100) : 0;
   const livePermitted = dep?.live_permitted ?? false;
-  const booked = today?.booked_today ?? 0;
+  const booked = today?.live_pnl_today ?? today?.booked_today ?? 0;
   const pnl = cap?.total_pnl ?? 0;
 
   return (

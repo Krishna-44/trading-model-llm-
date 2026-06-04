@@ -67,18 +67,18 @@ class PaperBroker(BrokerAdapter):
 
     # --- pricing ---------------------------------------------------------
     def get_price(self, symbol: str) -> float:
-        price = self.provider.latest_price(symbol)
+        price = self.provider.latest_quote(symbol)  # short-cached live quote
         self._last_prices[symbol] = price
         return price
 
     def mark_to_market(self, prices: dict[str, float] | None = None) -> None:
         for sym, pos in self.positions.items():
-            px = (prices or {}).get(sym) or self._last_prices.get(sym)
+            px = (prices or {}).get(sym)
             if px is None:
                 try:
-                    px = self.get_price(sym)
+                    px = self.get_price(sym)  # refresh from the live (short-cached) quote
                 except Exception:  # noqa: BLE001
-                    px = pos.avg_price
+                    px = self._last_prices.get(sym) or pos.avg_price
             pos.market_price = px
 
     # --- account ---------------------------------------------------------

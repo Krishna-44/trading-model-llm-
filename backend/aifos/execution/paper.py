@@ -45,6 +45,29 @@ class PaperBroker(BrokerAdapter):
         self._last_prices.clear()
         logger.info("paper broker reset: cash=%.2f %s", self.cash, settings.base_currency)
 
+    def snapshot(self) -> dict:
+        """Serializable state for persistence (survives restarts)."""
+        return {
+            "cash": self.cash, "contributed": self.contributed,
+            "realized_pnl": self.realized_pnl,
+            "positions": [{"symbol": p.symbol, "qty": p.qty, "avg_price": p.avg_price}
+                          for p in self.positions.values() if abs(p.qty) > 1e-9],
+        }
+
+    def restore(self, state: dict) -> None:
+        """Rehydrate the book from a persisted snapshot."""
+        if not state:
+            return
+        self.cash = float(state.get("cash", self.cash))
+        self.contributed = float(state.get("contributed", self.cash))
+        self.realized_pnl = float(state.get("realized_pnl", 0.0))
+        self.positions = {
+            p["symbol"]: Position(p["symbol"], float(p["qty"]), float(p["avg_price"]), float(p["avg_price"]))
+            for p in (state.get("positions") or []) if abs(float(p.get("qty", 0))) > 1e-9
+        }
+        logger.info("paper broker restored: cash=%.2f, %d open positions",
+                    self.cash, len(self.positions))
+
     def deposit(self, amount: float) -> float:
         """Add capital — becomes uninvested cash until a confident signal deploys it."""
         if amount <= 0:

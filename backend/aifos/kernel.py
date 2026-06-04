@@ -70,6 +70,7 @@ class AIFOSKernel:
         self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
         self.option_book: dict = {}                 # paper options strategies (mirrors DB)
         self._load_options()
+        self._load_broker_state()   # rehydrate paper cash + open positions across restarts
 
     # --- context ---------------------------------------------------------
     def build_context(self, symbol: str, interval: str = "1d") -> MarketContext:
@@ -310,6 +311,7 @@ class AIFOSKernel:
                     self.notifier.send("Paper marathon ended", "Capital exhausted (equity ~0).", "critical")
             except Exception:  # noqa: BLE001
                 pass
+        self._save_broker_state()  # persist the book each cycle so positions survive a restart
         return out
 
     # --- views -----------------------------------------------------------
@@ -482,6 +484,27 @@ class AIFOSKernel:
                 }
         except Exception:  # noqa: BLE001 - a cold/missing table must not crash startup
             logger.exception("failed to load persisted option positions")
+
+    def _load_broker_state(self) -> None:
+        """Rehydrate the paper book (cash + open positions) across restarts."""
+        if self.broker.is_live or not hasattr(self.broker, "restore"):
+            return
+        try:
+            state = self.repo.load_broker_state()
+            if state:
+                self.broker.restore(state)
+        except Exception:  # noqa: BLE001 - a cold/missing table must not crash startup
+            logger.exception("failed to load persisted broker state")
+
+    def _save_broker_state(self) -> None:
+        """Persist the paper book so positions survive a restart/reboot."""
+        if self.broker.is_live or not hasattr(self.broker, "snapshot"):
+            return
+        try:
+            s = self.broker.snapshot()
+            self.repo.save_broker_state(s["cash"], s["contributed"], s["realized_pnl"], s["positions"])
+        except Exception:  # noqa: BLE001 - persistence must never break trading
+            logger.exception("failed to save broker state")
 
     def close_option_paper(self, oid: int) -> dict:
         pos = self.option_book.get(int(oid))

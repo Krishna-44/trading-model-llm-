@@ -104,3 +104,15 @@ class VideoJobRecord(Base):
     status: Mapped[str] = mapped_column(String(12), default="queued")  # queued|processing|done|error
     note: Mapped[str] = mapped_column(String(256), default="")
     extracted_id: Mapped[int] = mapped_column(Integer, default=0)  # -> extracted_strategies.id
+
+
+class PaperBrokerState(Base):
+    """Singleton snapshot (id=1) of the paper broker — cash + open positions — so the
+    live book survives restarts/reboots. True 24/7 continuity for the forward test."""
+    __tablename__ = "paper_broker_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    cash: Mapped[float] = mapped_column(Float, default=0.0)
+    contributed: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    positions: Mapped[list] = mapped_column(JSON, default=list)  # [{symbol, qty, avg_price}]

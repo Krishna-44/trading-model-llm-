@@ -10,6 +10,7 @@ from .models import (
     ExtractedStrategyRecord,
     JournalEntry,
     OptionPositionRecord,
+    PaperBrokerState,
     TradeRecord,
     VideoJobRecord,
 )
@@ -111,7 +112,8 @@ class Repository:
     def reset_paper(self) -> None:
         """Wipe all paper history — decisions, trades, equity curve, journal, options."""
         with get_session() as s:
-            for model in (DecisionRecord, TradeRecord, EquityPoint, JournalEntry, OptionPositionRecord):
+            for model in (DecisionRecord, TradeRecord, EquityPoint, JournalEntry,
+                          OptionPositionRecord, PaperBrokerState):
                 s.execute(delete(model))
 
     # --- paper options lab persistence ----------------------------------
@@ -200,3 +202,24 @@ class Repository:
             if row:
                 for k, v in kw.items():
                     setattr(row, k, v)
+
+    # --- paper broker state (survives restarts) -------------------------
+    def save_broker_state(self, cash: float, contributed: float,
+                          realized_pnl: float, positions: list) -> None:
+        with get_session() as s:
+            row = s.get(PaperBrokerState, 1)
+            if row is None:
+                row = PaperBrokerState(id=1)
+                s.add(row)
+            row.cash = float(cash)
+            row.contributed = float(contributed)
+            row.realized_pnl = float(realized_pnl)
+            row.positions = positions
+
+    def load_broker_state(self) -> dict | None:
+        with get_session() as s:
+            row = s.get(PaperBrokerState, 1)
+            if row is None:
+                return None
+            return {"cash": row.cash, "contributed": row.contributed,
+                    "realized_pnl": row.realized_pnl, "positions": row.positions or []}

@@ -129,3 +129,61 @@ def walk_forward(
     oos = compute_metrics(combined, eq, [], _PPY.get(interval, 252))
     return {"folds": fold_metrics, "oos": oos,
             "note": "out-of-sample aggregate across expanding folds"}
+
+
+def monte_carlo(trades: list[dict], *, n_sims: int = 2000, seed: int = 7) -> dict:
+    """Bootstrap the per-trade returns to estimate the DISTRIBUTION of outcomes.
+
+    A genuine edge survives reshuffling; a fragile one (too few trades, or one
+    dominant winner) shows a wide spread, a weak P(profit), or collapses when its
+    single best trade is removed. Honest by construction: it cannot invent losses
+    that never happened, so instead of reporting a falsely reassuring number it
+    flags small / all-winning samples in ``verdict`` and sets ``reliable=False``.
+    """
+    rets = np.array([float(t.get("pnl_pct", 0.0)) for t in trades], dtype=float)
+    n = int(rets.size)
+    wins, losses = int((rets > 0).sum()), int((rets < 0).sum())
+    out: dict = {"n_trades": n, "wins": wins, "losses": losses, "sims": n_sims}
+    if n < 2:
+        return {**out, "reliable": False, "verdict": "too few trades for Monte Carlo"}
+
+    rng = np.random.default_rng(seed)
+    finals = np.empty(n_sims)
+    mdds = np.empty(n_sims)
+    for s in range(n_sims):
+        seq = rng.choice(rets, size=n, replace=True)          # resample a path
+        eq = np.concatenate([[1.0], np.cumprod(1.0 + seq)])
+        finals[s] = eq[-1] - 1.0
+        peak = np.maximum.accumulate(eq)
+        mdds[s] = float(((eq - peak) / peak).min())
+
+    real_total = float(np.prod(1.0 + rets) - 1.0)
+    without_best = float(np.prod(1.0 + np.delete(rets, int(np.argmax(rets)))) - 1.0)
+    gross_wins = float(rets[rets > 0].sum())
+    best_share = float(rets.max() / gross_wins) if gross_wins > 0 and rets.max() > 0 else 0.0
+    reliable = n >= 30 and losses >= 3
+
+    flags: list[str] = []
+    if n < 30:
+        flags.append(f"small sample (n={n}) — not statistically reliable")
+    if losses == 0:
+        flags.append("no losing trades in the sample — bootstrap can't model the downside")
+    if real_total > 0 and without_best <= 0:
+        flags.append("edge disappears without the single best trade — one-trade-dependent")
+    elif best_share >= 0.5:
+        flags.append(f"one trade is {best_share:.0%} of gross winnings — concentrated")
+
+    return {**out,
+            "reliable": bool(reliable),
+            "basis": "gross per-trade returns (excludes per-bar holding cost) — a "
+                     "robustness/fragility signal, not a net-return forecast",
+            "real_total_return": round(real_total, 4),
+            "p_profit": round(float((finals > 0).mean()), 3),
+            "median_return": round(float(np.median(finals)), 4),
+            "p05_return": round(float(np.percentile(finals, 5)), 4),
+            "p95_return": round(float(np.percentile(finals, 95)), 4),
+            "median_max_drawdown": round(float(np.median(mdds)), 4),
+            "worst_max_drawdown": round(float(mdds.min()), 4),
+            "return_without_best_trade": round(without_best, 4),
+            "best_trade_share_of_gross_wins": round(best_share, 3),
+            "verdict": "; ".join(flags) if flags else "broad-based — survives reshuffling"}

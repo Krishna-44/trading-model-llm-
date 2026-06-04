@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from ..backtest import run_backtest, walk_forward
+from ..backtest import monte_carlo, run_backtest, walk_forward
 from ..config import settings
 from ..data.models import classify_asset
 from ..kernel import get_kernel
@@ -194,7 +194,8 @@ async def backtest(req: BacktestReq) -> dict:
         strat = build_strategy(req.strategy, **req.params)
         res = run_backtest(df, strat, interval=req.interval, capital=settings.starting_capital)
         wf = walk_forward(df, strat, interval=req.interval)
-        return {**res.to_payload(), "walk_forward": wf}
+        mc = monte_carlo(res.trades)
+        return {**res.to_payload(), "walk_forward": wf, "monte_carlo": mc}
     return await run_in_threadpool(_run)
 
 

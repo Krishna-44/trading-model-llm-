@@ -225,6 +225,37 @@ class AIFOSKernel:
         out["requested"] = round(float(amount), 2)
         return out
 
+    def today(self) -> dict:
+        """Today's booked P&L (IST trading day) and how much of the wallet is deployed."""
+        from datetime import datetime, timedelta, timezone
+        ist = timezone(timedelta(hours=5, minutes=30))
+        day = datetime.now(ist).date()
+
+        def _ist_date(ts: str):
+            try:
+                return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc).astimezone(ist).date()
+            except (ValueError, TypeError):
+                return None
+
+        todays = [t for t in self.repo.recent_trades(2000) if _ist_date(t.get("ts", "")) == day]
+        realized = [float(t.get("realized_pnl", 0.0) or 0.0) for t in todays]
+        profit = round(sum(x for x in realized if x > 0), 2)
+        loss = round(sum(x for x in realized if x < 0), 2)  # negative
+        cap = self.capital()
+        return {
+            "date": day.isoformat(),
+            "profit_today": profit,
+            "loss_today": loss,
+            "loss_today_abs": round(abs(loss), 2),
+            "booked_today": round(profit + loss, 2),
+            "trades_today": len(todays),
+            "deployed": cap["deployed"],          # capital used from the wallet
+            "deployed_pct": round((cap["deployed"] / cap["contributed"] * 100) if cap["contributed"] else 0.0, 2),
+            "cash_idle": cap["cash"],
+            "wallet": cap["contributed"],
+            "currency": cap["currency"],
+        }
+
     def risk_snapshot(self) -> dict:
         snap = self.risk.snapshot()
         snap["memory"] = self.memory.stats()

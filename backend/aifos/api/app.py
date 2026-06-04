@@ -212,6 +212,12 @@ async def track_record_reset_ep(req: ResetReq) -> dict:
     return {"ok": True, **summary}
 
 
+@app.get("/api/today")
+async def today_ep() -> dict:
+    """Today's booked profit/loss and capital deployed from the wallet."""
+    return await run_in_threadpool(get_kernel().today)
+
+
 @app.get("/api/capital")
 async def capital_ep() -> dict:
     """Where the money is: net contributed, safe cash, and deployed-at-risk."""

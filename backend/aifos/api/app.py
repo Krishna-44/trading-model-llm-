@@ -219,6 +219,14 @@ async def explain_ep(symbol: str = settings.default_symbol,
     return await run_in_threadpool(get_kernel().explain, symbol, interval)
 
 
+@app.get("/api/options")
+async def options_ep(symbol: str = settings.default_symbol) -> dict:
+    """NSE options-chain intelligence (PCR, max pain, OI walls, IV). Honest
+    `available: False` when no real feed is reachable — never invents OI."""
+    from ..options_intel import analyze_options
+    return await run_in_threadpool(analyze_options, symbol)
+
+
 @app.get("/api/today")
 async def today_ep() -> dict:
     """Today's booked profit/loss and capital deployed from the wallet."""

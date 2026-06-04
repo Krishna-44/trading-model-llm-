@@ -9,6 +9,7 @@ import { TrackRecord } from "@/components/aifos/TrackRecord";
 import { CapitalPanel } from "@/components/aifos/Capital";
 import { TodayPanel } from "@/components/aifos/Today";
 import { ReasoningTree } from "@/components/aifos/ReasoningTree";
+import { OptionsChain } from "@/components/aifos/OptionsChain";
 import { ActivityFeed, TradeLog, useActivityFeed } from "@/components/aifos/Activity";
 import { VisionDock } from "@/components/aifos/Vision";
 import { api } from "@/lib/aifos/api";
@@ -63,9 +64,11 @@ function Dashboard() {
 
         <div className="col-span-12"><ReasoningTree symbol={symbol} /></div>
 
-        <div className="col-span-12 md:col-span-6 lg:col-span-4"><Fundamentals symbol={symbol} /></div>
-        <div className="col-span-12 md:col-span-6 lg:col-span-4"><Heatmap /></div>
-        <div className="col-span-12 lg:col-span-4"><NewsIntel symbol={symbol} /></div>
+        <div className="col-span-12 lg:col-span-6"><OptionsChain symbol={symbol} /></div>
+        <div className="col-span-12 lg:col-span-6"><NewsIntel symbol={symbol} /></div>
+
+        <div className="col-span-12 md:col-span-6"><Fundamentals symbol={symbol} /></div>
+        <div className="col-span-12 md:col-span-6"><Heatmap /></div>
 
         <div className="col-span-12 lg:col-span-5"><PortfolioPanel /></div>
         <div className="col-span-12 lg:col-span-4"><RiskEngine /></div>

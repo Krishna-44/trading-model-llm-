@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -377,11 +377,21 @@ async def strategies_extracted_list() -> dict:
     return await run_in_threadpool(get_kernel().list_extracted)
 
 
-# --- video queue: the dashboard table wired to the n8n pipeline -----------
+# --- video queue: the dashboard table (processed natively; n8n optional) --
 @app.post("/api/strategies/videos")
-async def videos_submit(payload: dict) -> dict:
-    """A link pasted into the dashboard table — queues it for extraction."""
-    return await run_in_threadpool(get_kernel().submit_video, payload.get("url", ""))
+async def videos_submit(payload: dict, background: BackgroundTasks) -> dict:
+    """A link pasted into the dashboard table — queues it and kicks off native
+    extraction (transcript → LLM → ingest) in the background. No n8n required."""
+    res = await run_in_threadpool(get_kernel().submit_video, payload.get("url", ""))
+    if res.get("ok"):
+        background.add_task(get_kernel().process_video, res["id"])
+    return res
+
+
+@app.post("/api/strategies/videos/process")
+async def videos_process() -> dict:
+    """Drain any queued links natively — the dashboard's self-service path."""
+    return await run_in_threadpool(get_kernel().process_queue)
 
 
 @app.get("/api/strategies/videos")

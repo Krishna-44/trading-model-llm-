@@ -1,7 +1,13 @@
-# AIFOS — n8n Video → Strategy pipeline
+# AIFOS — Video → Strategy pipeline (n8n optional)
+
+> **Note:** AIFOS now processes the queue **natively** — when you paste a link it fetches
+> the transcript, extracts the strategy on-device (your Gemini/LLM if reachable, else a
+> keyword reader), maps it to a tested template and backtests it. **You do not need n8n.**
+> This workflow is an **optional** alternate processor (e.g. to run extraction on a
+> separate box, or to use a hosted LLM via n8n). The table↔n8n contract below still works.
 
 The AIFOS dashboard has a **Video → Strategy** table. You paste a link → it becomes a
-queued row. n8n is wired **to that table**: it polls the queue, extracts the strategy,
+queued row. n8n can be wired **to that table**: it polls the queue, extracts the strategy,
 and writes the result back to the same row.
 
 ```

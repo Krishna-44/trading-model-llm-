@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "@/lib/aifos/useFetch";
 import { api } from "@/lib/aifos/api";
 import { Panel, Chip, Empty } from "./Panel";
@@ -18,6 +18,18 @@ export function VideoStrategies() {
   const [busy, setBusy] = useState(false);
   const videos: any[] = data?.videos || [];
 
+  // self-heal: if anything is queued (e.g. after a restart), drain it natively
+  const queuedCount = videos.filter((v) => v.status === "queued").length;
+  const draining = useRef(false);
+  useEffect(() => {
+    if (queuedCount > 0 && !draining.current) {
+      draining.current = true;
+      api("/api/strategies/videos/process", { method: "POST" })
+        .catch(() => {})
+        .finally(() => { setTimeout(() => { draining.current = false; }, 8000); });
+    }
+  }, [queuedCount]);
+
   const submit = async () => {
     const u = url.trim();
     if (!u || busy) return;
@@ -34,7 +46,7 @@ export function VideoStrategies() {
   return (
     <Panel
       title="Video → Strategy"
-      subtitle="paste a link · n8n extracts → maps → backtests → review"
+      subtitle="paste a link · AIFOS fetches transcript → extracts → maps → backtests → review"
       right={videos.length ? (
         <span className="text-[10px] text-muted-foreground num">
           {counts.queued || 0} queued · {counts.processing || 0} processing · {counts.done || 0} done
@@ -95,9 +107,9 @@ export function VideoStrategies() {
       )}
 
       <p className="text-[10px] text-muted-foreground/70 italic mt-3">
-        n8n polls this queue, extracts the educational strategy logic, maps it to a tested
-        template and backtests it — then writes the result back here. Nothing auto-deploys; the
-        extracted strategy lands in the marketplace inbox for your review.
+        AIFOS fetches the transcript and extracts the strategy on-device (using your Gemini/LLM
+        if reachable, else a keyword reader), maps it to a tested template and backtests it.
+        Nothing auto-deploys; the extracted strategy lands in the marketplace inbox for your review.
       </p>
     </Panel>
   );

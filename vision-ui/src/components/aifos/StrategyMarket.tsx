@@ -28,7 +28,7 @@ export function StrategyMarket({ symbol }: { symbol: string }) {
     >
       {extracted.length > 0 && (
         <div className="mb-3">
-          <div className="text-[10px] uppercase text-muted-foreground mb-1">Extracted from videos · n8n · {extracted.length}</div>
+          <div className="text-[10px] uppercase text-muted-foreground mb-1">Extracted from videos · {extracted.length}</div>
           <div className="space-y-1">
             {extracted.slice(0, 4).map((e: any) => (
               <div key={e.id} className="flex items-center gap-2 text-[11px] bg-secondary/20 border border-border rounded px-2 py-1">

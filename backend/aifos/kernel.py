@@ -598,6 +598,45 @@ class AIFOSKernel:
             note=f"{res.get('mapped_template', '?')} · clarity {round((res.get('clarity') or 0) * 100)}%")
         return {"ok": True, "job_id": job_id, **res}
 
+    def process_video(self, job_id: int) -> dict:
+        """Process a queued link natively (no n8n): fetch transcript → extract a
+        structured strategy → ingest (map to a tested template + backtest)."""
+        from .video_pipeline import extract_strategy, fetch_title, fetch_transcript
+        job_id = int(job_id)
+        job = next((v for v in self.repo.list_videos(500) if v["id"] == job_id), None)
+        if not job:
+            return {"ok": False, "error": "job not found"}
+        url = job["url"]
+        self.repo.update_video(job_id, status="processing")
+        title = fetch_title(url)
+        transcript, err = fetch_transcript(url)
+        if err:
+            self.repo.update_video(job_id, status="error", title=title[:160], note=err[:240])
+            return {"ok": False, "job_id": job_id, "error": err}
+        try:
+            payload, src = extract_strategy(transcript, title=title, url=url)
+            res = self.ingest_extracted(payload)
+        except Exception as exc:  # noqa: BLE001
+            self.repo.update_video(job_id, status="error", title=title[:160], note=str(exc)[:240])
+            return {"ok": False, "job_id": job_id, "error": str(exc)}
+        self.repo.update_video(
+            job_id, status="done", extracted_id=int(res.get("id") or 0),
+            title=(payload.get("strategy_name") or title)[:160],
+            note=f"{res.get('mapped_template', '?')} · clarity {round((res.get('clarity') or 0) * 100)}% · via {src}")
+        return {"ok": True, "job_id": job_id, "source": src, **res}
+
+    def process_queue(self, limit: int = 10) -> dict:
+        """Drain queued links (used by the dashboard so it works without n8n)."""
+        queued = [v for v in self.repo.list_videos(500) if v["status"] == "queued"][:int(limit)]
+        out = []
+        for j in queued:
+            try:
+                out.append(self.process_video(j["id"]))
+            except Exception as exc:  # noqa: BLE001
+                self.repo.update_video(j["id"], status="error", note=str(exc)[:240])
+                out.append({"ok": False, "job_id": j["id"], "error": str(exc)})
+        return {"processed": out, "count": len(out)}
+
     def strategy_live_stats(self) -> dict:
         """Realized paper/live performance per strategy — the forward signal of what
         actually works, attributed by the strategy that opened each closed trade."""

@@ -78,3 +78,16 @@ class OptionPositionRecord(Base):
     meta: Mapped[dict] = mapped_column(JSON, default=dict)   # max_profit/max_loss/breakevens
     status: Mapped[str] = mapped_column(String(8), default="open")  # open | closed
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class ExtractedStrategyRecord(Base):
+    """A strategy extracted from a video transcript (via n8n), pending human review."""
+    __tablename__ = "extracted_strategies"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    source: Mapped[str] = mapped_column(String(256), default="")
+    strategy_name: Mapped[str] = mapped_column(String(96), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    mapped_template: Mapped[str] = mapped_column(String(32), default="")
+    clarity: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(12), default="review")  # review | approved | rejected

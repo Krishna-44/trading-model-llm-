@@ -1,0 +1,84 @@
+{
+  "name": "AIFOS — YouTube Strategy Extraction",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-1",
+      "name": "When clicking Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "video_url", "value": "https://www.youtube.com/watch?v=REPLACE_ME", "type": "string" },
+            { "id": "a2", "name": "transcript", "value": "Paste the video transcript here — or wire a YouTube-transcript / Whisper node into this field.", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "inputs-1",
+      "name": "Inputs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_LLM_API_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'You extract trading-strategy logic from a transcript into STRICT JSON. Extract ONLY what is explicitly stated or strongly implied. Do NOT invent rules, hidden edge, timeframes, or profitability claims. Return JSON with keys: strategy_name, market, timeframe, indicators (array of strings), entry_conditions (array), exit_conditions (array), risk_management (object: risk_per_trade, rr_ratio), strategy_type (one of: scalping, intraday, swing, options, trend-following, mean-reversion, smc, ict, volatility). Leave a field empty if the video does not state it.' }, { role: 'user', content: $json.transcript } ] }) }}",
+        "options": {}
+      },
+      "id": "llm-1",
+      "name": "Extract via LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the LLM JSON + attach the source URL\nconst llm = $input.first().json;\nconst content = llm.choices?.[0]?.message?.content || '{}';\nlet parsed = {};\ntry { parsed = JSON.parse(content); } catch (e) { parsed = { strategy_name: 'PARSE_ERROR', raw: content }; }\nparsed.source = $('Inputs').first().json.video_url;\nreturn [{ json: parsed }];"
+      },
+      "id": "parse-1",
+      "name": "Parse + tag source",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/strategies/extracted",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "aifos-1",
+      "name": "Send to AIFOS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "When clicking Test": { "main": [[{ "node": "Inputs", "type": "main", "index": 0 }]] },
+    "Inputs": { "main": [[{ "node": "Extract via LLM", "type": "main", "index": 0 }]] },
+    "Extract via LLM": { "main": [[{ "node": "Parse + tag source", "type": "main", "index": 0 }]] },
+    "Parse + tag source": { "main": [[{ "node": "Send to AIFOS", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

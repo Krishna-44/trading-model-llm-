@@ -4,7 +4,14 @@ from __future__ import annotations
 from sqlalchemy import delete, desc, func, select
 
 from .db import get_session
-from .models import DecisionRecord, EquityPoint, JournalEntry, OptionPositionRecord, TradeRecord
+from .models import (
+    DecisionRecord,
+    EquityPoint,
+    ExtractedStrategyRecord,
+    JournalEntry,
+    OptionPositionRecord,
+    TradeRecord,
+)
 
 
 def _row(obj) -> dict:
@@ -129,3 +136,18 @@ class Repository:
             if row:
                 row.status = "closed"
                 row.realized_pnl = realized_pnl
+
+    # --- extracted strategies (n8n video pipeline) ----------------------
+    def save_extracted(self, **kw) -> int:
+        with get_session() as s:
+            rec = ExtractedStrategyRecord(**kw)
+            s.add(rec)
+            s.flush()
+            return rec.id
+
+    def list_extracted(self, limit: int = 50) -> list[dict]:
+        with get_session() as s:
+            rows = s.execute(
+                select(ExtractedStrategyRecord).order_by(desc(ExtractedStrategyRecord.ts)).limit(limit)
+            ).scalars().all()
+            return [_row(r) for r in rows]

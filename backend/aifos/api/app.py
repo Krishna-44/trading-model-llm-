@@ -365,6 +365,18 @@ async def strategy_toggle_ep(req: StrategyToggleReq) -> dict:
     return await run_in_threadpool(get_kernel().toggle_strategy, req.name, req.enabled)
 
 
+@app.post("/api/strategies/extracted")
+async def strategies_extracted_post(payload: dict) -> dict:
+    """Ingest an LLM-extracted strategy (from the n8n video pipeline) — stores it for
+    review, maps it to a tested template, and backtests. Never auto-deploys."""
+    return await run_in_threadpool(get_kernel().ingest_extracted, payload)
+
+
+@app.get("/api/strategies/extracted")
+async def strategies_extracted_list() -> dict:
+    return await run_in_threadpool(get_kernel().list_extracted)
+
+
 @app.get("/api/candle-read")
 async def candle_read_ep(symbol: str = settings.default_symbol,
                          interval: str = settings.default_interval) -> dict:

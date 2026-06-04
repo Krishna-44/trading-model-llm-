@@ -11,7 +11,9 @@ const biasTone = (b?: string) =>
  *  Sharpe, with enable/disable. The AI selects the best ENABLED one to trade. */
 export function StrategyMarket({ symbol }: { symbol: string }) {
   const { data: d, refetch } = useApi<any>(`/api/strategies?symbol=${encodeURIComponent(symbol)}`, { deps: [symbol], pollMs: 60000 });
+  const { data: ext } = useApi<any>("/api/strategies/extracted", { pollMs: 20000 });
   if (!d) return <Panel title="Strategy Marketplace"><Empty>backtesting strategies…</Empty></Panel>;
+  const extracted: any[] = ext?.extracted || [];
 
   const strats = [...(d.strategies || [])].sort((a, b) => (b.sharpe ?? -9) - (a.sharpe ?? -9));
   const toggle = async (name: string, enabled: boolean) => {
@@ -24,6 +26,21 @@ export function StrategyMarket({ symbol }: { symbol: string }) {
       subtitle={`${symbol} · ${d.interval} · backtest + live paper performance`}
       right={d.best ? <Chip tone="cyan">★ best: {d.best}</Chip> : null}
     >
+      {extracted.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[10px] uppercase text-muted-foreground mb-1">Extracted from videos · n8n · {extracted.length}</div>
+          <div className="space-y-1">
+            {extracted.slice(0, 4).map((e: any) => (
+              <div key={e.id} className="flex items-center gap-2 text-[11px] bg-secondary/20 border border-border rounded px-2 py-1">
+                <span className="font-medium truncate">{e.strategy_name}</span>
+                <span className="text-muted-foreground">→ {e.mapped_template}</span>
+                <span className="num text-muted-foreground ml-auto">clarity {Math.round((e.clarity || 0) * 100)}%</span>
+                <Chip tone={e.status === "approved" ? "up" : e.status === "rejected" ? "down" : "warn"}>{e.status}</Chip>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="space-y-1.5">
         {strats.map((s: any) => {
           const isBest = s.name === d.best;

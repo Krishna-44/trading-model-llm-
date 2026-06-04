@@ -531,6 +531,41 @@ class AIFOSKernel:
                 "note": "Backtested on real history, ranked by Sharpe. Backtests are not forward results — "
                         "the AI confirms a strategy by paper/forward-testing before trusting it."}
 
+    @staticmethod
+    def _extraction_symbol(market) -> str:
+        m = str(market or "").upper()
+        if "BANK" in m:
+            return "^NSEBANK"
+        if "NIFTY" in m or "NSE" in m:
+            return "^NSEI"
+        return settings.default_symbol
+
+    def ingest_extracted(self, payload: dict) -> dict:
+        """Receive an LLM-extracted strategy (from n8n), store it for review, map it
+        to the closest tested template, and backtest that template. No auto-deploy."""
+        from .strategy_extraction import analyze_extraction
+        a = analyze_extraction(payload)
+        a["id"] = self.repo.save_extracted(
+            source=a["source"], strategy_name=a["strategy_name"], payload=payload,
+            mapped_template=a["mapped_template"], clarity=a["clarity"], status="review")
+        try:
+            from .backtest import run_backtest
+            from .strategies import build_strategy
+            sym = self._extraction_symbol(payload.get("market"))
+            df = self.provider.history(sym, settings.default_interval)
+            df.attrs["symbol"] = sym
+            m = run_backtest(df, build_strategy(a["mapped_template"]),
+                             interval=settings.default_interval, capital=settings.starting_capital).metrics
+            a["backtest"] = {"symbol": sym, **{k: m[k] for k in
+                             ("total_return", "sharpe", "max_drawdown", "win_rate", "num_trades")}}
+        except Exception as exc:  # noqa: BLE001
+            a["backtest"] = {"error": str(exc)}
+        self.bus.publish("control", {"event": "strategy_extracted", "name": a["strategy_name"]})
+        return {"ok": True, **a}
+
+    def list_extracted(self) -> dict:
+        return {"extracted": self.repo.list_extracted()}
+
     def strategy_live_stats(self) -> dict:
         """Realized paper/live performance per strategy — the forward signal of what
         actually works, attributed by the strategy that opened each closed trade."""

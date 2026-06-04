@@ -9,6 +9,10 @@ class FakeProvider:
     def latest_price(self, symbol: str, interval: str = "1d") -> float:
         return self.px
 
+    def latest_quote(self, symbol: str) -> float:
+        # mirror MarketDataProvider's default: the live-ish quote is the latest price
+        return self.latest_price(symbol)
+
 
 def test_long_then_close_realizes_pnl():
     b = PaperBroker(provider=FakeProvider(100), starting_cash=1_000_000,
@@ -45,9 +49,12 @@ def test_angelone_gate_blocks_when_off():
 
     from aifos.execution.base import LiveTradingDisabled
     from aifos.execution.live import AngelOneBroker
-    # gate defaults OFF -> any connection attempt must be refused
+    # Live ORDERS are gated: with live_trading_enabled OFF (default), any real order
+    # must be refused at the order gate — before any broker/SmartAPI session is touched
+    # (so this stays offline and deterministic). Monitoring *reads* are intentionally
+    # allowed once creds exist; it's real money movement the gate exists to block.
     with pytest.raises(LiveTradingDisabled):
-        AngelOneBroker().connect()
+        AngelOneBroker().place_order(Order("RELIANCE.NS", OrderSide.BUY, 1))
 
 
 def test_angelone_symbol_mapping():

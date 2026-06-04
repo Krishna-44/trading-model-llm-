@@ -25,6 +25,13 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("aifos.api")
 
+if settings.log_file:  # service mode: also write a size-rotated log (5MB x 5 backups)
+    from logging.handlers import RotatingFileHandler
+
+    _fh = RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=5)
+    _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(_fh)
+
 app = FastAPI(title="AIFOS", version="0.1.0",
               description="Artificial Intelligence Financial Operating System")
 app.add_middleware(
@@ -111,9 +118,12 @@ async def _startup() -> None:
     k = get_kernel()  # warm the singleton + connect broker
     if not k.repo.equity_curve(1):
         k.snapshot_equity()  # seed an inception baseline so the curve starts at day one
+    if settings.autonomous_on_start:  # service mode: arm the loop at boot, no manual toggle
+        k.set_autonomous(True)
+        logger.info("autonomous loop ARMED at boot (autonomous_on_start=true)")
     asyncio.create_task(_autonomous_loop())
-    logger.info("AIFOS online | broker=%s live=%s llm=%s",
-                settings.broker, settings.live_trading_enabled, settings.llm_provider)
+    logger.info("AIFOS online | broker=%s live=%s llm=%s autonomous=%s",
+                settings.broker, settings.live_trading_enabled, settings.llm_provider, k.autonomous)
 
 
 async def _autonomous_loop() -> None:

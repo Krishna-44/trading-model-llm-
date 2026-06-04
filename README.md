@@ -165,3 +165,18 @@ See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the full design, data model, RL/L
   or `mistral` give richer extractions. If a call times out, AIFOS logs it and falls back
   safely — it never hangs the request indefinitely.
 - **ML/RL research stack** — `pip install -r backend/requirements-ml.txt` (PyTorch/SB3/Gymnasium) for the reinforcement-learning strategy search described in the architecture. Not required to run the platform.
+- **24/7 paper-forward service (macOS launchd)** — run a separate paper-mode instance on
+  `:8001` that trades the autonomous loop continuously and survives crashes/reboots, while
+  your main `:8000` instance is untouched:
+  ```bash
+  scripts/paper-forward.sh install     # generate plists, load, start (autonomous armed at boot)
+  scripts/paper-forward.sh status      # launchd state + health
+  scripts/paper-forward.sh logs        # tail the rotated app log
+  scripts/paper-forward.sh restart|stop|uninstall
+  ```
+  KeepAlive auto-restarts on crash; a 120s watchdog kickstarts it if it hangs; the app log
+  rotates (5 MB × 5). Tune via the plist env (`AIFOS_CONFIDENCE_THRESHOLD`, etc.).
+  **Note:** the closed-trade ledger + equity curve persist in `paper_forward.db`, but the
+  paper broker holds **open positions in memory** — a restart resets the live book to the
+  starting balance (in-flight trades are dropped, not closed). Position persistence across
+  restarts is a separate hardening step.

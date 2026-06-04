@@ -8,6 +8,7 @@ import { BrokerPanel } from "@/components/aifos/Broker";
 import { OptionsLab } from "@/components/aifos/OptionsLab";
 import { StrategyMarket } from "@/components/aifos/StrategyMarket";
 import { VideoStrategies } from "@/components/aifos/VideoStrategies";
+import { PaperTrading } from "@/components/aifos/PaperTrading";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
@@ -72,6 +73,10 @@ function Dashboard() {
         {/* broker connection + holdings by asset class + trade log */}
         <div className="col-span-12 lg:col-span-4"><BrokerPanel /></div>
         <div className="col-span-12 lg:col-span-8"><HoldingsPanel /></div>
+
+        {/* paper-forward scoreboard (:8001) — booked P&L by market & strategy */}
+        <div className="col-span-12"><PaperTrading /></div>
+
         <div className="col-span-12"><TradeLog /></div>
 
         {/* video → strategy queue (n8n-wired) feeding the marketplace inbox */}

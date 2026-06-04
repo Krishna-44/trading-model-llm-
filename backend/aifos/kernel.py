@@ -679,6 +679,57 @@ class AIFOSKernel:
                 out.append({"ok": False, "job_id": j["id"], "error": str(exc)})
         return {"processed": out, "count": len(out)}
 
+    def pnl_breakdown(self) -> dict:
+        """Booked P&L from CLOSED (realized) trades, split into profit booked vs
+        loss booked — by market class (equity/forex/crypto/index/options) AND by
+        the strategy that produced each trade. The paper-trading scoreboard."""
+        from .data.models import classify_asset
+
+        def bucket(d: dict, key: str) -> dict:
+            return d.setdefault(key, {"profit": 0.0, "loss": 0.0, "trades": 0, "wins": 0})
+
+        by_class: dict = {}
+        by_strat: dict = {}
+        for t in self.repo.recent_trades(2000):
+            pnl = float(t.get("realized_pnl") or 0.0)
+            if pnl == 0:  # opening legs carry no realized P&L; only count closes
+                continue
+            cls = classify_asset(t.get("symbol", "")).value
+            strat = t.get("strategy") or "unattributed"
+            for d, key in ((by_class, cls), (by_strat, strat)):
+                b = bucket(d, key)
+                b["trades"] += 1
+                if pnl >= 0:
+                    b["profit"] += pnl
+                    b["wins"] += 1
+                else:
+                    b["loss"] += -pnl
+
+        opt = self.repo.options_realized()  # the paper options lab
+        if opt["trades"]:
+            by_class["options"] = opt
+
+        def finalize(d: dict) -> list[dict]:
+            rows = [{"key": k, "profit": round(b["profit"], 2), "loss": round(b["loss"], 2),
+                     "net": round(b["profit"] - b["loss"], 2), "trades": b["trades"],
+                     "win_rate": round(b["wins"] / b["trades"], 3) if b["trades"] else 0.0}
+                    for k, b in d.items()]
+            return sorted(rows, key=lambda r: r["net"], reverse=True)
+
+        classes, strategies = finalize(by_class), finalize(by_strat)
+        profit = round(sum(r["profit"] for r in classes), 2)
+        loss = round(sum(r["loss"] for r in classes), 2)
+        acct = self.broker.get_account()
+        return {
+            "mode": "live" if self.broker.is_live else "paper",
+            "account": {"equity": round(acct.equity, 2), "cash": round(acct.cash, 2),
+                        "currency": acct.currency, "realized_pnl": round(acct.realized_pnl, 2)},
+            "totals": {"profit_booked": profit, "loss_booked": loss,
+                       "net_booked": round(profit - loss, 2),
+                       "trades": sum(r["trades"] for r in classes)},
+            "by_class": classes, "by_strategy": strategies,
+        }
+
     def strategy_live_stats(self) -> dict:
         """Realized paper/live performance per strategy — the forward signal of what
         actually works, attributed by the strategy that opened each closed trade."""

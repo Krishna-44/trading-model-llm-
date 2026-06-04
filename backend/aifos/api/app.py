@@ -422,6 +422,12 @@ async def videos_result(job_id: int, payload: dict) -> dict:
     return await run_in_threadpool(get_kernel().video_result, job_id, payload)
 
 
+@app.get("/api/pnl/breakdown")
+async def pnl_breakdown_ep() -> dict:
+    """Booked P&L split by market class + by strategy (the paper-trading scoreboard)."""
+    return await run_in_threadpool(get_kernel().pnl_breakdown)
+
+
 @app.get("/api/candle-read")
 async def candle_read_ep(symbol: str = settings.default_symbol,
                          interval: str = settings.default_interval) -> dict:

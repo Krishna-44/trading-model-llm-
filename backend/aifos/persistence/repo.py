@@ -138,6 +138,17 @@ class Repository:
                 row.status = "closed"
                 row.realized_pnl = realized_pnl
 
+    def options_realized(self) -> dict:
+        """Booked P&L of CLOSED paper option-lab positions (profit/loss split)."""
+        with get_session() as s:
+            rows = s.execute(
+                select(OptionPositionRecord).where(OptionPositionRecord.status == "closed")
+            ).scalars().all()
+            profit = sum(float(r.realized_pnl) for r in rows if (r.realized_pnl or 0) > 0)
+            loss = sum(-float(r.realized_pnl) for r in rows if (r.realized_pnl or 0) < 0)
+            wins = sum(1 for r in rows if (r.realized_pnl or 0) > 0)
+            return {"profit": profit, "loss": loss, "trades": len(rows), "wins": wins}
+
     # --- extracted strategies (n8n video pipeline) ----------------------
     def save_extracted(self, **kw) -> int:
         with get_session() as s:

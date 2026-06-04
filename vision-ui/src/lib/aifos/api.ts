@@ -4,13 +4,22 @@ export const API_BASE =
 
 export const WS_URL = API_BASE.replace(/^http/, "ws") + "/api/ws";
 
-export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+// The paper-forward instance (separate launchd service); the live monitor stays on API_BASE.
+export const PAPER_API_BASE =
+  (import.meta.env.VITE_AIFOS_PAPER_API as string | undefined)?.replace(/\/$/, "") ||
+  "http://localhost:8001";
+
+export async function apiFrom<T = any>(base: string, path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
+}
+
+export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
+  return apiFrom<T>(API_BASE, path, init);
 }
 
 export const fmt = {

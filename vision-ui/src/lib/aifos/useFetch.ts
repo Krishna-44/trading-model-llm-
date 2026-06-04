@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, apiFrom } from "./api";
 
-export function useApi<T = any>(path: string | null, opts?: { pollMs?: number; deps?: any[] }) {
+export function useApi<T = any>(path: string | null, opts?: { pollMs?: number; deps?: any[]; base?: string }) {
+  const get = (p: string) => (opts?.base ? apiFrom<T>(opts.base, p) : api<T>(p));
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState<boolean>(!!path);
@@ -18,7 +19,7 @@ export function useApi<T = any>(path: string | null, opts?: { pollMs?: number; d
     let timer: any;
     const run = async () => {
       try {
-        const json = await api<T>(path);
+        const json = await get(path);
         if (!cancelled && mounted.current) { setData(json); setError(null); }
       } catch (e: any) {
         if (!cancelled && mounted.current) setError(e);
@@ -33,5 +34,5 @@ export function useApi<T = any>(path: string | null, opts?: { pollMs?: number; d
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, ...(opts?.deps || [])]);
 
-  return { data, error, loading, refetch: () => path && api<T>(path).then(setData).catch(setError) };
+  return { data, error, loading, refetch: () => path && get(path).then(setData).catch(setError) };
 }

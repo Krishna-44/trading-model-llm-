@@ -308,8 +308,8 @@ class AngelOneBroker(BrokerAdapter):
                                 or row.get("avgnetprice") or 0)
                     ltp = float(row.get("ltp") or row.get("lastprice") or row.get("close") or avg)
                     out.append(Position(self._display_symbol(row.get("tradingsymbol", "")), qty, avg, ltp))
-            except Exception:  # noqa: BLE001
-                logger.exception("angelone position() read failed")
+            except Exception as exc:  # noqa: BLE001 - transient broker read; keep going
+                logger.warning("angelone position() read failed (retrying next poll): %s", exc)
             try:
                 for row in (sm.holding() or {}).get("data") or []:
                     qty = float(row.get("quantity") or 0)
@@ -318,8 +318,8 @@ class AngelOneBroker(BrokerAdapter):
                     avg = float(row.get("averageprice") or 0)
                     ltp = float(row.get("ltp") or row.get("lastprice") or avg)
                     out.append(Position(self._display_symbol(row.get("tradingsymbol", "")), qty, avg, ltp))
-            except Exception:  # noqa: BLE001
-                logger.exception("angelone holding() read failed")
+            except Exception as exc:  # noqa: BLE001 - empty demat / transient read; keep going
+                logger.warning("angelone holding() read failed (often just a transient/empty read): %s", exc)
             return out
         return self._cached("positions", 10, _fetch)
 

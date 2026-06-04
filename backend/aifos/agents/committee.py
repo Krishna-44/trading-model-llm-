@@ -102,7 +102,7 @@ class AgentCommittee:
                     side=side, entry=ctx.price, atr=ctx.atr, confidence=confidence,
                     equity=ctx.equity, open_positions=ctx.open_positions,
                     current_exposure_value=ctx.exposure_value, adv_notional=ctx.adv_notional,
-                    structure_stop=structure_stop,
+                    structure_stop=structure_stop, asset_class=ctx.asset_class,
                 )
                 risk_dict = assessment.to_dict()
                 if assessment.approved:

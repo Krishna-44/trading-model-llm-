@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
+from .config import settings
 from .data.models import AssetClass, classify_asset
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -16,6 +17,18 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 def _now(now: datetime | None = None) -> datetime:
     return now or datetime.now(timezone.utc)
+
+
+def nse_state(now: datetime) -> str:
+    """NSE status: open | after-hours | weekend | holiday."""
+    ist = now.astimezone(IST)
+    if ist.weekday() >= 5:
+        return "weekend"
+    if ist.date().isoformat() in set(settings.nse_holidays):
+        return "holiday"
+    if time(9, 15) <= ist.time() <= time(15, 30):
+        return "open"
+    return "after-hours"
 
 
 def is_market_open(symbol: str, now: datetime | None = None) -> bool:
@@ -34,10 +47,7 @@ def is_market_open(symbol: str, now: datetime | None = None) -> bool:
             return now.hour < 21
         return True                       # Mon–Thu — open
     if cls in (AssetClass.EQUITY, AssetClass.INDEX):
-        ist = now.astimezone(IST)         # NSE: Mon–Fri 09:15–15:30 IST
-        if ist.weekday() >= 5:
-            return False
-        return time(9, 15) <= ist.time() <= time(15, 30)
+        return nse_state(now) == "open"   # Mon–Fri 09:15–15:30 IST, excluding NSE holidays
     return False
 
 
@@ -62,7 +72,8 @@ def session_status(universe: list[str], now: datetime | None = None) -> dict:
     for s in open_syms:
         by_class.setdefault(classify_asset(s).value, []).append(s)
 
-    nse_open = bool(by_class.get("equity") or by_class.get("index"))
+    nse_st = nse_state(now)
+    nse_open = nse_st == "open"
     forex_open = bool(by_class.get("forex"))
     fx = _forex_sessions(now) if forex_open else []
 
@@ -79,6 +90,7 @@ def session_status(universe: list[str], now: datetime | None = None) -> dict:
         "now_utc": now.isoformat(),
         "now_ist": ist.strftime("%a %H:%M IST"),
         "nse_open": nse_open,
+        "nse_state": nse_st,
         "forex_open": forex_open,
         "crypto_open": True,
         "forex_sessions": fx,

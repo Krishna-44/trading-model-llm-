@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     default_interval: str = "1d"
     autonomous_interval_s: int = 300  # forward-test cadence: run a cycle + snapshot equity every N seconds
     trading_interval: str = "15m"     # bar interval the autonomous "Start Trading" loop trades (intraday)
+    # NSE trading holidays (YYYY-MM-DD). STARTER list of fixed-date national holidays —
+    # VERIFY/COMPLETE the movable festivals (Holi, Diwali, Eid, Dussehra…) from NSE's
+    # official annual trading-holiday calendar. Override via AIFOS_NSE_HOLIDAYS.
+    nse_holidays: list[str] = [
+        "2026-01-26",  # Republic Day
+        "2026-04-03",  # Good Friday
+        "2026-04-14",  # Ambedkar Jayanti
+        "2026-05-01",  # Maharashtra Day
+        "2026-08-15",  # Independence Day
+        "2026-10-02",  # Gandhi Jayanti
+        "2026-12-25",  # Christmas
+    ]
 
     # --- Capital / paper account ---
     starting_capital: float = 1_000_000.0  # ₹10L paper book

@@ -9,7 +9,7 @@ export function SessionStrip() {
   return (
     <div className="px-4 md:px-6 py-1.5 border-b border-border bg-background/30 flex flex-wrap items-center gap-x-5 gap-y-1 text-[10.5px]">
       <span className="num text-muted-foreground">{s.now_ist}</span>
-      <Market label="NSE" on={s.nse_open} />
+      <Market label="NSE" on={s.nse_open} suffix={s.nse_open ? "open" : (s.nse_state || "closed")} />
       <Market label={`Forex${s.forex_sessions?.length ? " · " + s.forex_sessions.join("/") : ""}`} on={s.forex_open} />
       <Market label="Crypto" on={true} suffix="24/7" />
       <span className="text-muted-foreground">

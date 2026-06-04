@@ -11,6 +11,17 @@ from dataclasses import dataclass, field
 
 from ..config import settings
 
+# Per-asset-class risk scaling (relative to the base settings). Forex and crypto
+# carry leverage / overnight-gap / volatility risk, so they get tighter sizing
+# AUTOMATICALLY — smaller risk-per-trade and a lower max position cap.
+RISK_PROFILES = {
+    "equity":  {"risk_mult": 1.0, "pos_mult": 1.0, "label": "standard"},
+    "index":   {"risk_mult": 1.0, "pos_mult": 1.0, "label": "standard"},
+    "forex":   {"risk_mult": 0.6, "pos_mult": 0.5, "label": "tight · leverage"},
+    "crypto":  {"risk_mult": 0.5, "pos_mult": 0.4, "label": "tight · volatility"},
+    "default": {"risk_mult": 0.5, "pos_mult": 0.5, "label": "conservative"},
+}
+
 
 @dataclass
 class RiskAssessment:
@@ -75,6 +86,7 @@ class RiskEngine:
         self, *, side: str, entry: float, atr: float, confidence: float,
         equity: float, open_positions: int, current_exposure_value: float,
         adv_notional: float | None = None, structure_stop: float | None = None,
+        asset_class: str = "equity",
     ) -> RiskAssessment:
         a = RiskAssessment(approved=False, side=side, entry=entry)
 
@@ -114,13 +126,21 @@ class RiskEngine:
             a.rejections.append(f"reward:risk {a.rr_ratio:.2f} < min {settings.min_rr_ratio}")
             return a
 
+        # per-market risk profile — forex/crypto get tighter sizing automatically
+        prof = RISK_PROFILES.get(asset_class, RISK_PROFILES["default"])
+        risk_pct = settings.risk_per_trade_pct * prof["risk_mult"]
+        max_pos_pct = settings.max_position_pct * prof["pos_mult"]
+        if prof["risk_mult"] < 1.0:
+            a.reasons.append(f"{asset_class} risk profile [{prof['label']}]: "
+                             f"risk×{prof['risk_mult']}, max-position×{prof['pos_mult']}")
+
         # size from fixed fractional risk
-        a.risk_amount = equity * settings.risk_per_trade_pct
+        a.risk_amount = equity * risk_pct
         units = a.risk_amount / stop_dist
         notional = units * entry
 
         # cap by max position % and absolute per-trade cap
-        cap = min(equity * settings.max_position_pct, settings.per_trade_cap)
+        cap = min(equity * max_pos_pct, settings.per_trade_cap)
         if notional > cap:
             scale = cap / notional
             units *= scale
@@ -173,4 +193,5 @@ class RiskEngine:
                 "max_daily_loss_pct": settings.max_daily_loss_pct,
                 "min_rr_ratio": settings.min_rr_ratio,
             },
+            "risk_profiles": RISK_PROFILES,
         }

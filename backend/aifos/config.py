@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     autonomous_interval_s: int = 300  # forward-test cadence: run a cycle + snapshot equity every N seconds
     trading_interval: str = "15m"     # bar interval the autonomous "Start Trading" loop trades (intraday)
     autonomous_on_start: bool = False # service mode: arm the autonomous loop at boot (no manual toggle)
+    marathon_on_start: bool = False   # paper service: start continuous run-to-ruin marathon at boot
     log_file: str = ""                # if set, also write a size-rotated log to this path
     # NSE trading holidays (YYYY-MM-DD). STARTER list of fixed-date national holidays —
     # VERIFY/COMPLETE the movable festivals (Holi, Diwali, Eid, Dussehra…) from NSE's

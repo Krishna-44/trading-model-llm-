@@ -118,7 +118,10 @@ async def _startup() -> None:
     k = get_kernel()  # warm the singleton + connect broker
     if not k.repo.equity_curve(1):
         k.snapshot_equity()  # seed an inception baseline so the curve starts at day one
-    if settings.autonomous_on_start:  # service mode: arm the loop at boot, no manual toggle
+    if settings.marathon_on_start and not k.broker.is_live:  # continuous paper, no daily-loss stop
+        k.start_paper_marathon()
+        logger.info("PAPER MARATHON armed at boot (continuous, no daily-loss auto-stop)")
+    elif settings.autonomous_on_start:  # service mode: arm the loop at boot, no manual toggle
         k.set_autonomous(True)
         logger.info("autonomous loop ARMED at boot (autonomous_on_start=true)")
     asyncio.create_task(_autonomous_loop())
@@ -655,6 +658,23 @@ def autonomous(req: AutonomousReq) -> dict:
     flag = req.on if req.on is not None else bool(req.enabled)
     k.set_autonomous(flag)
     return {"ok": True, "autonomous": k.autonomous}
+
+
+@app.post("/api/control/marathon")
+async def control_marathon(payload: dict) -> dict:
+    """PAPER-only: start/stop continuous run-to-ruin paper trading (no daily-loss
+    auto-stop, profits compounded). Refused on a live account."""
+    k = get_kernel()
+    on = True if payload is None else bool(payload.get("on", True))
+    try:
+        return await run_in_threadpool(k.start_paper_marathon if on else k.stop_paper_marathon)
+    except RuntimeError as exc:  # live account
+        return {"ok": False, "error": str(exc)}
+
+
+@app.get("/api/control/marathon")
+async def control_marathon_status() -> dict:
+    return await run_in_threadpool(get_kernel().marathon_status)
 
 
 @app.post("/api/control/cycle")

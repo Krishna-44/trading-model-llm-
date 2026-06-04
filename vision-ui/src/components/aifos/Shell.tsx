@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@/lib/aifos/useFetch";
 import { useWS } from "@/lib/aifos/ws";
-import { api, fmt } from "@/lib/aifos/api";
+import { api, apiFrom, fmt, PAPER_API_BASE } from "@/lib/aifos/api";
 import { Chip, Dot } from "./Panel";
 import { Activity, Power, Zap, Brain, Bot } from "lucide-react";
 import { motion } from "framer-motion";
@@ -66,26 +66,29 @@ export function Header({ symbol }: { symbol: string }) {
   );
 }
 
+// Controls the PAPER instance (:8001), not the :8000 monitor. Marathon = continuous
+// paper trading with no daily-loss auto-stop, profits compounded, until stopped or broke.
 function StartTradingButton() {
-  const { data: risk } = useApi<any>("/api/risk", { pollMs: 5000 });
-  const on = risk?.autonomous ?? false;
+  const { data: m } = useApi<any>("/api/control/marathon", { pollMs: 5000, base: PAPER_API_BASE });
+  const on = m?.marathon ?? false;
+  const pct = m?.capital_remaining_pct != null ? Math.round(m.capital_remaining_pct * 100) : null;
   const [busy, setBusy] = useState(false);
   const toggle = async () => {
     setBusy(true);
-    try { await api("/api/control/autonomous", { method: "POST", body: JSON.stringify({ enabled: !on }) }); } catch {} finally { setBusy(false); }
+    try { await apiFrom(PAPER_API_BASE, "/api/control/marathon", { method: "POST", body: JSON.stringify({ on: !on }) }); } catch {} finally { setBusy(false); }
   };
   return (
     <button
       onClick={toggle}
       disabled={busy}
-      title="Start autonomous intraday paper trading — it learns from each trade's P&L"
+      title="Start CONTINUOUS paper trading on the :8001 forward instance — no daily-loss auto-stop, profits compounded into bigger trades, runs until you stop it or capital is exhausted"
       className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${on
         ? "bg-rose-500/15 border border-rose-500/50 text-rose-300 hover:bg-rose-500/25"
         : "bg-gradient-to-r from-emerald-400 to-[color:var(--cyan)] text-background hover:opacity-90 shadow-lg shadow-emerald-500/20"}`}
     >
       {on
-        ? (<><span className="w-2 h-2 rounded-[2px] bg-rose-400" /> Stop Trading</>)
-        : (<><span className="w-0 h-0 border-y-[5px] border-y-transparent border-l-[8px] border-l-background" /> Start Trading <span className="opacity-70 font-normal">· paper</span></>)}
+        ? (<><span className="w-2 h-2 rounded-[2px] bg-rose-400" /> Stop Paper Trading{pct != null && <span className="opacity-70 font-normal">· {pct}% cap</span>}</>)
+        : (<><span className="w-0 h-0 border-y-[5px] border-y-transparent border-l-[8px] border-l-background" /> Start Paper Trading <span className="opacity-70 font-normal">· marathon</span></>)}
     </button>
   );
 }

@@ -51,6 +51,7 @@ write_main_plist() {
     <key>AIFOS_LLM_PROVIDER</key><string>none</string>
     <key>AIFOS_CONFIDENCE_THRESHOLD</key><string>$BAR</string>
     <key>AIFOS_AUTONOMOUS_ON_START</key><string>true</string>
+    <key>AIFOS_MARATHON_ON_START</key><string>true</string>
     <key>AIFOS_LOG_FILE</key><string>$LOGDIR/paper_forward.app.log</string>
     <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin</string>
   </dict>

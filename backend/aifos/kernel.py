@@ -301,6 +301,15 @@ class AIFOSKernel:
             self.snapshot_equity()  # one honest equity point per cycle, even when all-HOLD
         except Exception:  # noqa: BLE001
             logger.exception("equity snapshot failed")
+        if self.risk.marathon:  # run-to-ruin guard: stop honestly when capital is gone
+            try:
+                if self.broker.get_account().equity <= settings.starting_capital * 0.01:
+                    self.risk.marathon = False
+                    self.autonomous = False
+                    self.bus.publish("control", {"event": "marathon_exhausted"})
+                    self.notifier.send("Paper marathon ended", "Capital exhausted (equity ~0).", "critical")
+            except Exception:  # noqa: BLE001
+                pass
         return out
 
     # --- views -----------------------------------------------------------
@@ -885,6 +894,42 @@ class AIFOSKernel:
     def set_autonomous(self, on: bool) -> None:
         self.autonomous = on and not self.risk.kill_switch_active
         self.bus.publish("control", {"event": "autonomous", "on": self.autonomous})
+
+    def start_paper_marathon(self) -> dict:
+        """PAPER-only: run the autonomous loop CONTINUOUSLY with no daily-loss
+        auto-stop, compounding realized P&L into position sizing, until stopped or
+        capital is exhausted. Refuses on a live account (the kill switch is sacred
+        for real money)."""
+        if self.broker.is_live:
+            raise RuntimeError("marathon is paper-only; refusing on a LIVE account")
+        self.risk.reset_kill_switch()
+        self.risk.marathon = True
+        self.autonomous = True
+        self.bus.publish("control", {"event": "marathon", "on": True})
+        self.notifier.send("Paper marathon started",
+                           "Continuous paper trading — no daily-loss stop, profits compounded.", "info")
+        return self.marathon_status()
+
+    def stop_paper_marathon(self) -> dict:
+        self.risk.marathon = False
+        self.autonomous = False
+        self.bus.publish("control", {"event": "marathon", "on": False})
+        return self.marathon_status()
+
+    def marathon_status(self) -> dict:
+        acct = self.broker.get_account()
+        start = settings.starting_capital or 1.0
+        return {
+            "marathon": self.risk.marathon,
+            "autonomous": self.autonomous,
+            "equity": round(acct.equity, 2),
+            "starting_capital": round(start, 2),
+            "pnl": round(acct.equity - start, 2),
+            "capital_remaining_pct": round(max(0.0, acct.equity / start), 4),
+            "mode": "live" if self.broker.is_live else "paper",
+            "note": "Continuous paper trading, no daily-loss auto-stop; realized profit is "
+                    "compounded into sizing. Stops on command or when capital is exhausted.",
+        }
 
     def reset_track_record(self) -> dict:
         """Wipe paper history and restore the starting book — 'start the clock' on a

@@ -57,6 +57,7 @@ class RiskEngine:
         self.daily_pnl = 0.0
         self.daily_start_equity = settings.starting_capital
         self.realized_trades_today = 0
+        self.marathon = False  # PAPER-only: run continuously, no daily-loss auto-stop
 
     # --- circuit breaker -------------------------------------------------
     def trip_kill_switch(self, reason: str) -> None:
@@ -76,7 +77,7 @@ class RiskEngine:
         self.daily_pnl += realized_pnl
         self.realized_trades_today += 1
         loss_limit = -abs(self.daily_start_equity * settings.max_daily_loss_pct)
-        if self.daily_pnl <= loss_limit:
+        if not self.marathon and self.daily_pnl <= loss_limit:
             self.trip_kill_switch(
                 f"daily loss {self.daily_pnl:,.0f} breached limit {loss_limit:,.0f}"
             )
@@ -179,6 +180,7 @@ class RiskEngine:
         return {
             "kill_switch_active": self.kill_switch_active,
             "kill_reason": self.kill_reason,
+            "marathon": self.marathon,
             "daily_pnl": round(self.daily_pnl, 2),
             "daily_loss_limit": round(-loss_limit, 2),
             "daily_loss_used_pct": round(

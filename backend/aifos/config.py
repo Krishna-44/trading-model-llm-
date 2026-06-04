@@ -66,6 +66,19 @@ class Settings(BaseSettings):
     broker: str = "paper"  # paper | zerodha | upstox | angelone | oanda
     allow_offshore_forex: bool = False  # FEMA guard for Indian residents
 
+    # --- Staged deployment pipeline (paper -> micro -> scaling) ---
+    deployment_stage: str = "paper"           # paper | micro | scaling
+    # Go-live readiness: the forward paper test must clear ALL of these before micro capital
+    golive_min_days: float = 14.0
+    golive_min_closed_trades: int = 20
+    golive_min_sharpe: float = 0.8
+    golive_min_profit_factor: float = 1.2
+    golive_min_expectancy: float = 0.0        # positive expectancy required
+    golive_max_drawdown: float = 0.10         # max acceptable drawdown (10%)
+    # Stage 2 (micro) hard caps
+    micro_max_risk_per_trade: float = 2000.0  # ₹ risked per trade
+    micro_max_daily_loss: float = 5000.0      # ₹ daily loss kill
+
     # Broker credentials (only read when live + matching broker selected)
     zerodha_api_key: str = ""
     zerodha_api_secret: str = ""

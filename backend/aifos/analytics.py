@@ -148,6 +148,8 @@ def track_record(repo, account, starting_capital: float) -> dict:
         "sharpe": eq["sharpe"],
         "sortino": eq["sortino"],
         "max_drawdown": eq["max_drawdown"],
+        "calmar": (round((equity_now - starting_capital) / starting_capital / abs(eq["max_drawdown"]), 3)
+                   if eq["max_drawdown"] and starting_capital else 0.0),
         "equity_points": eq["points"],
         "curve": pts,
         "note": ("Forward paper test — metrics populate as cycles run and trades close. "

@@ -108,6 +108,13 @@ class AIFOSKernel:
         decision, ctx = self.analyze(symbol, interval, persist=False)
         fill = None
         if execute and decision.action in ("BUY", "SELL") and not self.risk.kill_switch_active:
+            if self.broker.is_live:
+                ds = self.deployment()  # staged-deployment safety gate for REAL orders
+                if not ds["live_permitted"]:
+                    decision.reasoning += " | LIVE BLOCKED: " + "; ".join(ds["blocking"])
+                    logger.warning("live execution blocked for %s: %s", symbol, ds["blocking"])
+                    self._persist_decision(decision)
+                    return decision, None
             try:
                 fill = ExecutorAgent().execute(self.broker, symbol, decision.side, decision.sizing)
             except LiveTradingDisabled as exc:
@@ -383,6 +390,11 @@ class AIFOSKernel:
             "drivers": [o.agent for o in drivers[:3]],
             "risk_plan": decision.risk or decision.sizing or {},
         }
+
+    def deployment(self) -> dict:
+        """Staged-deployment status + empirical go-live readiness (paper→micro→scaling)."""
+        from .deployment import deployment_status
+        return deployment_status(self.track_record(), self.broker.name, self.broker.is_live)
 
     def risk_snapshot(self) -> dict:
         snap = self.risk.snapshot()

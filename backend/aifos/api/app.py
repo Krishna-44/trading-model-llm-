@@ -227,6 +227,25 @@ async def options_ep(symbol: str = settings.default_symbol) -> dict:
     return await run_in_threadpool(analyze_options, symbol)
 
 
+@app.get("/api/deployment")
+async def deployment_ep() -> dict:
+    """Staged-deployment status + go-live readiness gates (what's blocking live)."""
+    return await run_in_threadpool(get_kernel().deployment)
+
+
+@app.get("/api/export")
+async def export_ep(limit: int = 5000) -> dict:
+    """Auditable export: track record + trades + decisions + equity curve (JSON)."""
+    def _run() -> dict:
+        k = get_kernel()
+        return {"note": "UTC timestamps; paper unless mode=live. Verified data only.",
+                "track_record": k.track_record(),
+                "trades": k.repo.recent_trades(limit),
+                "decisions": k.repo.recent_decisions(limit),
+                "equity_curve": k.repo.equity_curve(limit)}
+    return await run_in_threadpool(_run)
+
+
 @app.get("/api/today")
 async def today_ep() -> dict:
     """Today's booked profit/loss and capital deployed from the wallet."""

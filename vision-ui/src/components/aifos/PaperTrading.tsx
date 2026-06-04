@@ -15,6 +15,8 @@ export function PaperTrading() {
   const { data, error } = useApi<any>("/api/pnl/breakdown", { base: PAPER_API_BASE, pollMs: 8000 });
   const { data: tdata } = useApi<any>("/api/trades", { base: PAPER_API_BASE, pollMs: 8000 });
   const { data: pf } = useApi<any>("/api/portfolio", { base: PAPER_API_BASE, pollMs: 8000 });
+  const { data: mar } = useApi<any>("/api/control/marathon", { base: PAPER_API_BASE, pollMs: 6000 });
+  const { data: tr } = useApi<any>("/api/track-record", { base: PAPER_API_BASE, pollMs: 10000 });
 
   if (error && !data)
     return <Panel title="Paper Trading"><Empty>paper instance offline (:8001) — start it with <code className="text-foreground/80">scripts/paper-forward.sh status</code></Empty></Panel>;
@@ -28,6 +30,14 @@ export function PaperTrading() {
   const has = (t.trades || 0) > 0;
   const positions: any[] = pf?.positions || [];
   const openUpnl = pf?.unrealized_pnl || 0;
+  // marathon progress: equity between ₹0 (ruin) and its high-water peak
+  const curve: number[] = (tr?.curve || []).map((c: any) => c.equity || 0);
+  const start = mar?.starting_capital ?? acct.equity ?? 1000000;
+  const equity = mar?.equity ?? acct.equity ?? start;
+  const peak = Math.max(start, equity, ...curve);
+  const ddFromPeak = peak > 0 ? (equity - peak) / peak : 0;
+  const running = !!mar?.marathon;
+  const capPct = Math.max(0, Math.min(1, peak ? equity / peak : 0));
 
   return (
     <Panel
@@ -42,6 +52,25 @@ export function PaperTrading() {
         </div>
       }
     >
+      <div className="mb-3 rounded-md border border-border bg-secondary/10 p-2.5">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+          <Chip tone={running ? "up" : "warn"}>{running ? "● marathon running" : "○ marathon stopped"}</Chip>
+          <span className="text-[11px] num">{inr(equity)}</span>
+          <span className="text-[10px] text-muted-foreground">peak {inr(peak)}</span>
+          <span className={`text-[10px] num ml-auto ${ddFromPeak >= 0 ? "text-[color:var(--up)]" : "text-[color:var(--down)]"}`}>
+            {(ddFromPeak * 100).toFixed(1)}% from peak
+          </span>
+        </div>
+        <div className="h-2 rounded-full bg-background/60 overflow-hidden relative" title="equity between ₹0 (ruin) and the high-water peak">
+          <div className={`h-full ${capPct > 0.5 ? "bg-[color:var(--up)]" : capPct > 0.2 ? "bg-amber-400" : "bg-[color:var(--down)]"}`} style={{ width: `${capPct * 100}%` }} />
+          <div className="absolute top-0 h-full w-px bg-foreground/50" style={{ left: `${Math.min(100, peak ? (start / peak) * 100 : 0)}%` }} title={`start ${inr(start)}`} />
+        </div>
+        <div className="flex justify-between text-[8px] text-muted-foreground mt-0.5">
+          <span>₹0 · ruin</span><span>start {inr(start)}</span><span>peak {inr(peak)}</span>
+        </div>
+        {curve.length > 1 && <Sparkline pts={curve} />}
+      </div>
+
       <div className="grid grid-cols-4 gap-2 mb-3">
         <Stat k="Equity" v={inr(acct.equity)} />
         <Stat k="Profit booked" v={inr(t.profit_booked)} tone="up" />
@@ -128,6 +157,19 @@ export function PaperTrading() {
         REAL realized profit/loss from the strategies on real data, not a forecast.
       </p>
     </Panel>
+  );
+}
+
+function Sparkline({ pts }: { pts: number[] }) {
+  if (pts.length < 2) return null;
+  const w = 300, h = 26;
+  const min = Math.min(...pts), max = Math.max(...pts), rng = max - min || 1;
+  const d = pts.map((p, i) => `${(i / (pts.length - 1)) * w},${h - ((p - min) / rng) * h}`).join(" ");
+  const up = pts[pts.length - 1] >= pts[0];
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-6 mt-1.5" preserveAspectRatio="none">
+      <polyline points={d} fill="none" stroke={up ? "var(--up)" : "var(--down)"} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 

@@ -24,7 +24,7 @@ PLIST="$LA/$LABEL.plist"
 WPLIST="$LA/$WLABEL.plist"
 LOGDIR="$BACKEND/logs"
 HEALTH="http://127.0.0.1:$PORT/api/health"
-BAR="${AIFOS_PAPER_BAR:-0.30}"   # forward-test confidence bar (looser than the 0.62 live bar)
+BAR="${AIFOS_PAPER_BAR:-0.20}"   # forward-test confidence bar (looser than the 0.62 live bar; marathon trades more at a lower bar)
 
 mkdir -p "$LA" "$LOGDIR"
 

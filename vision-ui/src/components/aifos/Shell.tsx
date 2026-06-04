@@ -13,6 +13,10 @@ export function Header({ symbol }: { symbol: string }) {
   const r = wsRisk || risk;
   const mode = config?.mode || config?.broker?.mode || "paper";
   const live = mode === "live";
+  const monitorOnly = config?.monitor_only ?? true;
+  const brokerName = config?.broker || "paper";
+  const brokerLabel = !live ? "PAPER" : monitorOnly ? `${String(brokerName).toUpperCase()} · MONITOR` : "LIVE";
+  const brokerTone: "cyan" | "indigo" | "down" = !live ? "cyan" : monitorOnly ? "indigo" : "down";
   const llmOn = config?.llm?.enabled ?? config?.llm_enabled ?? false;
   const autonomous = r?.autonomous ?? config?.autonomous ?? false;
   const killed = r?.kill_switch_active ?? false;
@@ -38,7 +42,7 @@ export function Header({ symbol }: { symbol: string }) {
 
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <Chip tone={connected ? "up" : "down"}><Dot on={connected} color={connected ? "emerald" : "rose"} /> {connected ? "streaming" : "offline"}</Chip>
-          <Chip tone={live ? "down" : "cyan"}><Zap className="w-3 h-3" /> {live ? "LIVE" : "PAPER"}</Chip>
+          <Chip tone={brokerTone}><Zap className="w-3 h-3" /> {brokerLabel}</Chip>
           <Chip tone={llmOn ? "indigo" : "default"}><Bot className="w-3 h-3" /> LLM {llmOn ? "on" : "off"}</Chip>
           <button
             disabled={busy}

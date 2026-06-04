@@ -135,6 +135,7 @@ def config() -> dict:
         "broker": k.broker.name,
         "mode": "live" if k.broker.is_live else "paper",
         "live_trading_enabled": settings.live_trading_enabled,
+        "monitor_only": settings.live_monitor_only,
         "allow_offshore_forex": settings.allow_offshore_forex,
         "llm": {"provider": settings.llm_provider, "available": k.committee.llm.available()},
         "strategies": list(REGISTRY),
@@ -433,6 +434,34 @@ async def cycle(req: CycleReq) -> dict:
 
 
 # --- portfolio / risk / logs --------------------------------------------
+@app.get("/api/broker")
+async def broker_ep() -> dict:
+    """Broker connection status — real account funds/positions when connected, and
+    exactly what's blocking real orders. Read-only; never places an order."""
+    def _run() -> dict:
+        b = get_kernel().broker
+        info = {
+            "broker": b.name, "is_live": b.is_live,
+            "mode": "live" if b.is_live else "paper",
+            "live_trading_enabled": settings.live_trading_enabled,
+            "monitor_only": settings.live_monitor_only,
+            "orders_armed": bool(settings.live_trading_enabled and not settings.live_monitor_only),
+            "connected": False, "funds": None, "positions": 0, "error": None,
+        }
+        if b.is_live:
+            try:
+                acct = b.get_account()
+                info["connected"] = True
+                info["funds"] = acct.to_dict()
+                info["positions"] = len(b.get_positions())
+            except Exception as exc:  # noqa: BLE001
+                info["error"] = str(exc)
+        else:
+            info["note"] = "Paper broker. Connect a real account: set the broker + credentials in backend/.env."
+        return info
+    return await run_in_threadpool(_run)
+
+
 @app.get("/api/holdings")
 async def holdings_ep() -> dict:
     """Open positions + invested capital by asset class (stocks/forex/crypto/options)."""

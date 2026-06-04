@@ -23,7 +23,7 @@ import httpx
 from ..config import settings
 from ..data.models import is_offshore_forex
 from ..data.providers import get_provider
-from .base import Account, BrokerAdapter, Fill, LiveTradingDisabled, Order, OrderSide
+from .base import Account, BrokerAdapter, Fill, LiveTradingDisabled, Order, OrderSide, Position
 
 logger = logging.getLogger("aifos.exec.live")
 
@@ -200,9 +200,31 @@ class AngelOneBroker(BrokerAdapter):
     def __init__(self) -> None:
         self._smart = None
         self._tokens: dict[tuple[str, str], str] = {}
+        self._cache: dict[str, tuple[float, object]] = {}
+
+    def _cached(self, key: str, ttl: float, fn):
+        hit = self._cache.get(key)
+        if hit and (time.time() - hit[0]) < ttl:
+            return hit[1]
+        val = fn()
+        self._cache[key] = (time.time(), val)
+        return val
+
+    @staticmethod
+    def _display_symbol(tsym: str) -> str:
+        t = (tsym or "").upper()
+        return t[:-3] + ".NS" if t.endswith("-EQ") else (tsym or "?")
+
+    def _orders_allowed(self) -> None:
+        """The order-side gate (reading the account never calls this)."""
+        _require_gate(self.name)  # live_trading_enabled master switch
+        if settings.live_monitor_only:
+            raise LiveTradingDisabled(
+                f"{self.name}: MONITOR-ONLY is ON — the account is connected for monitoring "
+                f"only; real orders are disabled. Set AIFOS_LIVE_MONITOR_ONLY=false to allow "
+                f"trading (do this only after go-live readiness passes).")
 
     def _client(self):
-        _require_gate(self.name)
         s = settings
         if not (s.angelone_api_key and s.angelone_client_code and s.angelone_pin
                 and s.angelone_totp_secret):
@@ -266,19 +288,46 @@ class AngelOneBroker(BrokerAdapter):
         raise LiveTradingDisabled(f"no Angel One token for {tradingsymbol}@{exchange}")
 
     def get_account(self) -> Account:
-        rms = self._client().rmsLimit() or {}
-        d = rms.get("data", rms) or {}
-        cash = float(d.get("net") or d.get("availablecash") or 0.0)
-        return Account(cash=cash, equity=cash, currency="INR")
+        d = self._cached("rms", 10, lambda: (self._client().rmsLimit() or {}).get("data", {}) or {})
+        cash = float(d.get("availablecash") or d.get("net") or 0.0)
+        holdings_val = sum(abs(p.market_value) for p in self.get_positions())
+        return Account(cash=cash, equity=round(cash + holdings_val, 2), currency="INR")
 
-    def get_positions(self):
-        self._client()
-        return []  # map sm.position()["data"] -> Position when arming live
+    def get_positions(self) -> list[Position]:
+        """Real Angel One positions (intraday/F&O) + demat holdings, mapped to Position
+        objects so the dashboard reflects the actual account. Read-only; cached 10s."""
+        def _fetch() -> list[Position]:
+            sm = self._client()
+            out: list[Position] = []
+            try:
+                for row in (sm.position() or {}).get("data") or []:
+                    qty = float(row.get("netqty") or 0)
+                    if abs(qty) < 1e-9:
+                        continue
+                    avg = float(row.get("netprice") or row.get("buyavgprice")
+                                or row.get("avgnetprice") or 0)
+                    ltp = float(row.get("ltp") or row.get("lastprice") or row.get("close") or avg)
+                    out.append(Position(self._display_symbol(row.get("tradingsymbol", "")), qty, avg, ltp))
+            except Exception:  # noqa: BLE001
+                logger.exception("angelone position() read failed")
+            try:
+                for row in (sm.holding() or {}).get("data") or []:
+                    qty = float(row.get("quantity") or 0)
+                    if abs(qty) < 1e-9:
+                        continue
+                    avg = float(row.get("averageprice") or 0)
+                    ltp = float(row.get("ltp") or row.get("lastprice") or avg)
+                    out.append(Position(self._display_symbol(row.get("tradingsymbol", "")), qty, avg, ltp))
+            except Exception:  # noqa: BLE001
+                logger.exception("angelone holding() read failed")
+            return out
+        return self._cached("positions", 10, _fetch)
 
     def get_price(self, symbol: str) -> float:
         return get_provider().latest_price(symbol)
 
     def place_order(self, order: Order) -> Fill:
+        self._orders_allowed()  # gate + monitor-only — blocks real orders unless explicitly armed
         sm = self._client()
         _fema_guard(order.symbol)
         tsym, exch = self._angel_symbol(order.symbol)
@@ -298,4 +347,9 @@ class AngelOneBroker(BrokerAdapter):
                     ts=datetime.now(timezone.utc).isoformat(), status="submitted")
 
     def close_position(self, symbol: str):
-        raise NotImplementedError("close via opposite INTRADAY order when arming live")
+        self._orders_allowed()
+        for p in self.get_positions():
+            if p.symbol == symbol and abs(p.qty) > 1e-9:
+                side = OrderSide.SELL if p.qty > 0 else OrderSide.BUY
+                return self.place_order(Order(symbol=symbol, side=side, qty=abs(p.qty)))
+        return None

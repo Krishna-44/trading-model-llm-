@@ -5,5 +5,7 @@
 kiteconnect>=4.2          # Zerodha Kite Connect (paid API, daily access-token re-auth)
 upstox-python-sdk>=2.0    # Upstox
 smartapi-python>=1.4      # Angel One SmartAPI
+logzero                   # smartapi-python runtime dep (not auto-installed)
+websocket-client          # smartapi-python runtime dep (not auto-installed)
 pyotp>=2.9                # Angel One session TOTP generation
 oandapyV20>=0.7           # OANDA v20 (forex) — the bundled adapter uses httpx, this is optional

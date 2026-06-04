@@ -64,6 +64,7 @@ class Settings(BaseSettings):
 
     # --- Live trading gate (DANGER ZONE — defaults OFF) ---
     live_trading_enabled: bool = False
+    live_monitor_only: bool = True  # connect & READ the real account, but NEVER place real orders
     broker: str = "paper"  # paper | zerodha | upstox | angelone | oanda
     allow_offshore_forex: bool = False  # FEMA guard for Indian residents
 

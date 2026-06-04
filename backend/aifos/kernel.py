@@ -62,7 +62,10 @@ class AIFOSKernel:
         self.memory = get_memory()
         self.notifier = get_notifier()
         self.bus = EventBus()
-        self.broker.connect()
+        try:
+            self.broker.connect()
+        except Exception:  # noqa: BLE001 - a broker connection issue must never crash the app
+            logger.exception("broker '%s' connect failed (will retry on demand)", self.broker.name)
         self.autonomous = False             # background trading loop OFF by default
         self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
 

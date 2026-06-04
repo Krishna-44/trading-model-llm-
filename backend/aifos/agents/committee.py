@@ -15,7 +15,14 @@ from __future__ import annotations
 
 from ..config import settings
 from ..risk import RiskEngine
-from .analysts import MacroAgent, MarketAnalystAgent, NewsAgent, SentimentAgent
+from ..regime import regime_weight_multiplier
+from .analysts import (
+    MacroAgent,
+    MarketAnalystAgent,
+    NewsAgent,
+    SentimentAgent,
+    SmartMoneyAgent,
+)
 from .base import AgentOpinion, MarketContext, TradeDecision
 from .fundamentals import FundamentalsAgent
 from .governance import (
@@ -40,8 +47,9 @@ class AgentCommittee:
     def __init__(self) -> None:
         self.evolution = StrategyEvolutionAgent()
         self.voters = [
-            MarketAnalystAgent(), FundamentalsAgent(), SentimentAgent(), NewsAgent(),
-            MacroAgent(), RiskManagerAgent(), PortfolioOptimizerAgent(), ComplianceAgent(),
+            MarketAnalystAgent(), SmartMoneyAgent(), FundamentalsAgent(), SentimentAgent(),
+            NewsAgent(), MacroAgent(), RiskManagerAgent(), PortfolioOptimizerAgent(),
+            ComplianceAgent(),
         ]
         self.llm = get_llm()
 
@@ -61,10 +69,15 @@ class AgentCommittee:
 
         vetoes = [o for o in opinions if o.veto]
 
-        # weighted directional consensus across voting agents
+        # weighted directional consensus, with regime-adaptive weighting
+        regime = (ctx.extra.get("regime") or {}).get("regime", "unknown")
         voters = [o for o in opinions if o.weight > 0]
-        wsum = sum(o.weight for o in voters) or 1.0
-        net = sum(o.weight * o.signed() for o in voters) / wsum
+
+        def _w(o: AgentOpinion) -> float:
+            return o.weight * regime_weight_multiplier(o.agent, regime)
+
+        wsum = sum(_w(o) for o in voters) or 1.0
+        net = sum(_w(o) * o.signed() for o in voters) / wsum
         confidence = float(min(0.97, abs(net)))
         side = "long" if net > _DEAD else "short" if net < -_DEAD else "flat"
 
@@ -82,10 +95,13 @@ class AgentCommittee:
                 action, side = "HOLD", "flat"
                 verdict = news_reason
             else:
+                struct = (ctx.extra.get("smc") or {}).get("components", {}).get("structure", {})
+                structure_stop = struct.get("last_swing_low") if side == "long" else struct.get("last_swing_high")
                 assessment = risk.assess(
                     side=side, entry=ctx.price, atr=ctx.atr, confidence=confidence,
                     equity=ctx.equity, open_positions=ctx.open_positions,
                     current_exposure_value=ctx.exposure_value, adv_notional=ctx.adv_notional,
+                    structure_stop=structure_stop,
                 )
                 risk_dict = assessment.to_dict()
                 if assessment.approved:

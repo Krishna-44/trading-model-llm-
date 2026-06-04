@@ -212,6 +212,13 @@ async def track_record_reset_ep(req: ResetReq) -> dict:
     return {"ok": True, **summary}
 
 
+@app.get("/api/explain")
+async def explain_ep(symbol: str = settings.default_symbol,
+                     interval: str = settings.default_interval) -> dict:
+    """Full auditable reasoning tree for the current decision on a symbol."""
+    return await run_in_threadpool(get_kernel().explain, symbol, interval)
+
+
 @app.get("/api/today")
 async def today_ep() -> dict:
     """Today's booked profit/loss and capital deployed from the wallet."""

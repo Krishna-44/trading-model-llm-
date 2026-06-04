@@ -74,7 +74,7 @@ class RiskEngine:
     def assess(
         self, *, side: str, entry: float, atr: float, confidence: float,
         equity: float, open_positions: int, current_exposure_value: float,
-        adv_notional: float | None = None,
+        adv_notional: float | None = None, structure_stop: float | None = None,
     ) -> RiskAssessment:
         a = RiskAssessment(approved=False, side=side, entry=entry)
 
@@ -97,8 +97,13 @@ class RiskEngine:
             a.rejections.append("invalid ATR/price — cannot size risk safely")
             return a
 
-        # stop / target from ATR
+        # stop from ATR, optionally tightened to market structure (SMC swing level)
         stop_dist = settings.atr_stop_mult * atr
+        if structure_stop and structure_stop > 0:
+            sdist = abs(entry - structure_stop)
+            if 0.5 * stop_dist <= sdist <= stop_dist:
+                stop_dist = sdist
+                a.reasons.append(f"stop tightened to market structure @ {structure_stop:.2f}")
         tgt_dist = settings.atr_target_mult * atr
         if side == "long":
             a.stop_loss, a.take_profit = entry - stop_dist, entry + tgt_dist

@@ -64,6 +64,7 @@ class AIFOSKernel:
         self.bus = EventBus()
         self.broker.connect()
         self.autonomous = False             # background trading loop OFF by default
+        self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
 
     # --- context ---------------------------------------------------------
     def build_context(self, symbol: str, interval: str = "1d") -> MarketContext:
@@ -77,11 +78,19 @@ class AIFOSKernel:
         exposure = sum(abs(p.market_value) for p in positions)
         vol = df["volume"].tail(20)
         adv = float((vol * df["close"].tail(20)).mean()) if float(vol.sum()) > 0 else None
+        from .indicators.smc import smc_signals
+        from .regime import detect_regime
+        extra: dict = {"interval": interval}
+        try:
+            extra["regime"] = detect_regime(df)
+            extra["smc"] = smc_signals(df)
+        except Exception:  # noqa: BLE001 - context enrichment must never break a cycle
+            logger.exception("regime/smc computation failed for %s", symbol)
         return MarketContext(
             symbol=symbol, asset_class=classify_asset(symbol).value, df=df, price=price,
             atr=atr_val, equity=acct.equity, open_positions=len(positions),
             exposure_value=exposure, adv_notional=adv,
-            positions=[p.to_dict() for p in positions], extra={"interval": interval},
+            positions=[p.to_dict() for p in positions], extra=extra,
         )
 
     # --- decide ----------------------------------------------------------
@@ -118,13 +127,94 @@ class AIFOSKernel:
                 self.bus.publish("fill", {"fill": fill.to_dict(), "symbol": symbol})
                 self.notifier.send(f"Order filled — {symbol}",
                                    f"{fill.side.value} {fill.qty:.4f} @ {fill.price:.2f}", "info")
+                self._record_plan(symbol, decision)
                 if self.risk.kill_switch_active:
                     self.notifier.send("Daily loss limit breached", self.risk.kill_reason, "critical")
         self._persist_decision(decision)
         return decision, fill
 
+    # --- position management (adaptive exits) ----------------------------
+    def _record_plan(self, symbol: str, decision: TradeDecision) -> None:
+        s = decision.sizing or {}
+        entry = float(s.get("entry") or 0.0)
+        stop = float(s.get("stop_loss") or 0.0)
+        target = float(s.get("take_profit") or 0.0)
+        if entry <= 0 or stop <= 0:
+            return
+        self.position_plans[symbol] = {
+            "side": decision.side, "entry": entry, "stop": stop, "target": target,
+            "r": abs(entry - stop) or entry * 0.01, "high_water": entry, "partial_done": False,
+        }
+
+    def _after_exit(self, symbol: str, fill, kind: str) -> None:
+        acct = self.broker.get_account()
+        self.risk.register_fill(fill.realized_pnl, acct.equity)
+        self.repo.save_trade(
+            symbol=symbol, side=fill.side.value, qty=fill.qty, price=fill.price,
+            commission=fill.commission, realized_pnl=fill.realized_pnl,
+            order_id=fill.order_id, mode="live" if self.broker.is_live else "paper",
+        )
+        self.repo.save_equity(acct.equity, acct.cash)
+        self.bus.publish("fill", {"fill": fill.to_dict(), "symbol": symbol, "exit": kind})
+        self.notifier.send(f"Exit · {kind} — {symbol}",
+                           f"{fill.side.value} {fill.qty:.4f} @ {fill.price:.2f} "
+                           f"(pnl {fill.realized_pnl:,.2f})", "info")
+
+    def manage_positions(self) -> list[dict]:
+        """Adaptive exits on open positions each cycle: hard stop/target, partial
+        profit-booking at +1R (then stop to breakeven), and a 1R trailing stop."""
+        from .execution.base import Order, OrderSide
+        actions: list[dict] = []
+        for pos in list(self.broker.get_positions()):
+            sym = pos.symbol
+            plan = self.position_plans.get(sym)
+            if not plan or abs(pos.qty) < 1e-9:
+                continue
+            try:
+                px = self.broker.get_price(sym)
+            except Exception:  # noqa: BLE001
+                continue
+            long = pos.qty > 0
+            entry, r = plan["entry"], plan["r"]
+            plan["high_water"] = max(plan["high_water"], px) if long else min(plan["high_water"], px)
+            gain_r = ((px - entry) / r) if long else ((entry - px) / r)
+
+            hit_stop = (long and px <= plan["stop"]) or (not long and px >= plan["stop"])
+            hit_target = (long and px >= plan["target"]) or (not long and px <= plan["target"])
+            if hit_stop or hit_target:
+                fill = self.broker.close_position(sym)
+                if fill:
+                    self._after_exit(sym, fill, "stop" if hit_stop else "target")
+                    actions.append({"symbol": sym, "exit": "stop" if hit_stop else "target",
+                                    "pnl": round(fill.realized_pnl, 2)})
+                self.position_plans.pop(sym, None)
+                continue
+
+            if gain_r >= 1.0 and not plan["partial_done"]:
+                half = abs(pos.qty) / 2.0
+                if half > 0:
+                    side = OrderSide.SELL if long else OrderSide.BUY
+                    fill = self.broker.place_order(Order(symbol=sym, side=side, qty=half))
+                    if fill:
+                        plan["partial_done"] = True
+                        plan["stop"] = entry  # lock breakeven after booking half
+                        self._after_exit(sym, fill, "partial_1R")
+                        actions.append({"symbol": sym, "exit": "partial_1R",
+                                        "pnl": round(fill.realized_pnl, 2)})
+                continue
+
+            if gain_r >= 1.5:
+                trail = (plan["high_water"] - r) if long else (plan["high_water"] + r)
+                plan["stop"] = max(plan["stop"], trail) if long else min(plan["stop"], trail)
+        return actions
+
     def run_universe(self, execute: bool = True) -> list[dict]:
         out = []
+        if execute:
+            try:
+                self.manage_positions()
+            except Exception:  # noqa: BLE001
+                logger.exception("position management failed")
         for sym in settings.universe:
             try:
                 decision, fill = self.tick(sym, settings.default_interval, execute=execute)
@@ -254,6 +344,44 @@ class AIFOSKernel:
             "cash_idle": cap["cash"],
             "wallet": cap["contributed"],
             "currency": cap["currency"],
+        }
+
+    def explain(self, symbol: str, interval: str = "1d") -> dict:
+        """Auditable reasoning tree for a fresh (non-persisted) decision: regime,
+        smart-money structure, indicator alignment, the full committee, and the
+        risk plan — every number traceable to why the desk would (or wouldn't) act."""
+        from .indicators import adx, macd, rsi, stochastic, supertrend, vwap
+        ctx = self.build_context(symbol, interval)
+        decision = self.committee.deliberate(ctx, self.risk)
+        df = ctx.df
+        c = df["close"]
+        px = float(c.iloc[-1])
+        ind: dict = {}
+        try:
+            ind["rsi"] = round(float(rsi(c).iloc[-1]), 1)
+            ind["macd_hist"] = round(float(macd(c)["hist"].iloc[-1]), 4)
+            ind["adx"] = round(float(adx(df["high"], df["low"], c)["adx"].iloc[-1]), 1)
+            ind["supertrend_dir"] = int(supertrend(df["high"], df["low"], c)["direction"].iloc[-1])
+            ind["stoch_k"] = round(float(stochastic(df["high"], df["low"], c)["k"].iloc[-1]), 1)
+            vw = float(vwap(df["high"], df["low"], c, df["volume"]).iloc[-1])
+            ind["vs_vwap"] = round(px / vw - 1, 4) if vw else None
+        except Exception:  # noqa: BLE001
+            pass
+        smc = ctx.extra.get("smc", {})
+        drivers = sorted([o for o in decision.opinions if o.weight > 0 and o.stance != "neutral"],
+                         key=lambda o: o.weight * o.confidence, reverse=True)
+        return {
+            "symbol": symbol, "price": round(px, 4),
+            "decision": {"action": decision.action, "side": decision.side,
+                         "confidence": round(decision.confidence, 3),
+                         "reasoning": decision.reasoning, "summary": decision.llm_summary},
+            "regime": ctx.extra.get("regime", {}),
+            "smc": {"bias": smc.get("bias"), "score": smc.get("score"),
+                    "reasoning": smc.get("reasoning"), "components": smc.get("components", {})},
+            "indicators": ind,
+            "agents": [o.to_dict() for o in decision.opinions],
+            "drivers": [o.agent for o in drivers[:3]],
+            "risk_plan": decision.risk or decision.sizing or {},
         }
 
     def risk_snapshot(self) -> dict:

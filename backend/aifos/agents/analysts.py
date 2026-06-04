@@ -134,10 +134,37 @@ class MacroAgent(Agent):
                 f"{med:.0%} — regime unstable, stand aside.",
                 {"realized_vol": round(cur, 3), "vol_ratio": round(ratio, 2)}, veto=True,
             )
-        calm = ratio < 1.2
+        reg = ctx.extra.get("regime", {})
+        label = reg.get("regime", "calm" if ratio < 1.2 else "elevated")
         return AgentOpinion(
-            self.name, "neutral", 0.5 if calm else 0.35, self.weight,
-            f"Regime {'calm' if calm else 'elevated'}: realized vol {cur:.0%} "
-            f"({ratio:.1f}x median).",
-            {"realized_vol": round(cur, 3), "vol_ratio": round(ratio, 2)},
+            self.name, "neutral", 0.5 if ratio < 1.2 else 0.35, self.weight,
+            f"Regime: {label} (ADX {reg.get('adx', '?')}, realized vol {cur:.0%}, "
+            f"{ratio:.1f}x median).",
+            {"realized_vol": round(cur, 3), "vol_ratio": round(ratio, 2),
+             "regime": label, "adx": reg.get("adx")},
+        )
+
+
+class SmartMoneyAgent(Agent):
+    """Smart Money Concepts (SMC/ICT): market structure, order blocks, FVGs,
+    premium/discount and liquidity sweeps — deterministic price geometry."""
+    name = "Smart Money / SMC"
+    weight = 1.0
+
+    def analyze(self, ctx: MarketContext) -> AgentOpinion:
+        smc = ctx.extra.get("smc")
+        if smc is None:
+            from ..indicators.smc import smc_signals
+            smc = smc_signals(ctx.df)
+        score = float(smc.get("score", 0.0))
+        comp = smc.get("components", {})
+        struct = comp.get("structure", {})
+        zone = comp.get("zone", {})
+        return AgentOpinion(
+            self.name, smc.get("bias", "neutral"),
+            float(np.clip(abs(score) * 1.2, 0.0, 0.9)), self.weight,
+            f"SMC: {smc.get('reasoning', 'no clear edge')}.",
+            {"score": score, "event": struct.get("event"), "zone": zone.get("zone"),
+             "swing_low": struct.get("last_swing_low"),
+             "swing_high": struct.get("last_swing_high")},
         )

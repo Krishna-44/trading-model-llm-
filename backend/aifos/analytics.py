@@ -97,6 +97,64 @@ def portfolio_analytics(repo) -> dict:
     }
 
 
+def track_record(repo, account, starting_capital: float) -> dict:
+    """Single honest 'is it working on paper?' report, since inception.
+
+    Every field traces to stored decisions/trades/equity points or the live
+    mark-to-market account. Sparse fields are zero, never invented.
+    """
+    curve = repo.equity_curve(5000)
+    trades = repo.recent_trades(5000)
+    eq = _equity_stats(curve)
+    ts = _trade_stats(trades)
+
+    inception = repo.inception_ts()
+    days = 0.0
+    if inception:
+        try:
+            start = datetime.fromisoformat(inception).replace(tzinfo=None)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            days = round((now - start).total_seconds() / 86400.0, 2)
+        except ValueError:
+            days = 0.0
+
+    equity_now = round(float(account.equity), 2)
+    realized = round(float(account.realized_pnl), 2)
+    unrealized = round(equity_now - starting_capital - realized, 2)
+
+    pts = [{"ts": p.get("ts"), "equity": round(float(p["equity"]), 2)} for p in curve]
+    if len(pts) > 240:                       # keep the curve light for the UI
+        step = len(pts) // 240 + 1
+        pts = pts[::step] + [pts[-1]]
+
+    return {
+        "inception": inception,
+        "days_running": days,
+        "starting_capital": round(float(starting_capital), 2),
+        "current_equity": equity_now,
+        "total_return": round(_safe(equity_now, starting_capital) - 1, 4),
+        "realized_pnl": realized,
+        "unrealized_pnl": unrealized,
+        "daily_pnl": _window_pnl(curve, 1),
+        "weekly_pnl": _window_pnl(curve, 7),
+        "monthly_pnl": _window_pnl(curve, 30),
+        "decisions": repo.count_decisions(),
+        "executed": repo.count_executed(),
+        "execution_rate": round(_safe(repo.count_executed(), repo.count_decisions()), 3),
+        "closed_trades": ts["closed_trades"],
+        "win_rate": ts["win_rate"],
+        "profit_factor": ts["profit_factor"],
+        "expectancy": ts["expectancy"],
+        "sharpe": eq["sharpe"],
+        "sortino": eq["sortino"],
+        "max_drawdown": eq["max_drawdown"],
+        "equity_points": eq["points"],
+        "curve": pts,
+        "note": ("Forward paper test — metrics populate as cycles run and trades close. "
+                 "Zeros are honest, not failures. Past results never guarantee future ones."),
+    }
+
+
 def strategy_comparison(provider, symbol: str, interval: str = "1d") -> list[dict]:
     df = provider.history(symbol, interval)
     df.attrs["symbol"] = symbol

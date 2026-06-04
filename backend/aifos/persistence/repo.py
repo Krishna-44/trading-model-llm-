@@ -1,7 +1,7 @@
 """Thin repository over the ORM. All reads return plain dicts ready for the API."""
 from __future__ import annotations
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, func, select
 
 from .db import get_session
 from .models import DecisionRecord, EquityPoint, JournalEntry, TradeRecord
@@ -67,3 +67,29 @@ class Repository:
                 select(JournalEntry).order_by(desc(JournalEntry.ts)).limit(limit)
             ).scalars().all()
             return [_row(r) for r in rows]
+
+    # --- track-record aggregates ----------------------------------------
+    def count_decisions(self) -> int:
+        with get_session() as s:
+            return int(s.execute(select(func.count()).select_from(DecisionRecord)).scalar() or 0)
+
+    def count_executed(self) -> int:
+        with get_session() as s:
+            return int(s.execute(
+                select(func.count()).select_from(DecisionRecord)
+                .where(DecisionRecord.executed.is_(True))
+            ).scalar() or 0)
+
+    def inception_ts(self) -> str | None:
+        """Oldest timestamp on record — when this forward run's clock started."""
+        with get_session() as s:
+            d = s.execute(select(func.min(DecisionRecord.ts))).scalar()
+            e = s.execute(select(func.min(EquityPoint.ts))).scalar()
+        cands = [x for x in (d, e) if x is not None]
+        return min(cands).isoformat() if cands else None
+
+    def reset_paper(self) -> None:
+        """Wipe all paper history — decisions, trades, equity curve, journal."""
+        with get_session() as s:
+            for model in (DecisionRecord, TradeRecord, EquityPoint, JournalEntry):
+                s.execute(delete(model))

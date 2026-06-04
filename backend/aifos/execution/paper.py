@@ -35,6 +35,14 @@ class PaperBroker(BrokerAdapter):
     def connect(self) -> None:
         logger.info("paper broker ready: cash=%.2f %s", self.cash, settings.base_currency)
 
+    def reset(self, starting_cash: float | None = None) -> None:
+        """Restore the book to its starting state — for a fresh forward test."""
+        self.cash = starting_cash if starting_cash is not None else settings.starting_capital
+        self.positions.clear()
+        self.realized_pnl = 0.0
+        self._last_prices.clear()
+        logger.info("paper broker reset: cash=%.2f %s", self.cash, settings.base_currency)
+
     # --- pricing ---------------------------------------------------------
     def get_price(self, symbol: str) -> float:
         price = self.provider.latest_price(symbol)

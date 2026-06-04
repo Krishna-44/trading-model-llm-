@@ -5,6 +5,7 @@ import { ChartPanel, AnalysisPanels, useAnalyze } from "@/components/aifos/Analy
 import { Fundamentals, Heatmap, Correlation, AllocationDonut } from "@/components/aifos/Market";
 import { NewsIntel, ExecutionEngine } from "@/components/aifos/News";
 import { PortfolioPanel, RiskEngine } from "@/components/aifos/Portfolio";
+import { TrackRecord } from "@/components/aifos/TrackRecord";
 import { ActivityFeed, TradeLog, useActivityFeed } from "@/components/aifos/Activity";
 import { AILab, PerformanceAnalytics } from "@/components/aifos/Lab";
 import { VisionDock } from "@/components/aifos/Vision";
@@ -52,6 +53,8 @@ function Dashboard() {
         <div className="col-span-12 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
           <AnalysisPanels symbol={symbol} interval={interval} analysis={analysis} analyzing={analyzing} setAnalysis={() => {}} />
         </div>
+
+        <div className="col-span-12"><TrackRecord /></div>
 
         <div className="col-span-12 md:col-span-6 lg:col-span-4"><Fundamentals symbol={symbol} /></div>
         <div className="col-span-12 md:col-span-6 lg:col-span-4"><Heatmap /></div>

@@ -133,6 +133,10 @@ class AIFOSKernel:
             except Exception as exc:  # noqa: BLE001 - never let one symbol stop the loop
                 logger.exception("tick failed for %s", sym)
                 out.append({"symbol": sym, "error": str(exc)})
+        try:
+            self.snapshot_equity()  # one honest equity point per cycle, even when all-HOLD
+        except Exception:  # noqa: BLE001
+            logger.exception("equity snapshot failed")
         return out
 
     # --- views -----------------------------------------------------------
@@ -163,6 +167,21 @@ class AIFOSKernel:
             "broker": self.broker.name,
         }
 
+    def snapshot_equity(self) -> float:
+        """Mark to market and persist one equity point — keeps the curve honest over
+        time (captures unrealized drift) instead of only when a trade fills."""
+        acct = self.broker.get_account()
+        self.repo.save_equity(acct.equity, acct.cash)
+        return acct.equity
+
+    def track_record(self) -> dict:
+        """Honest forward paper performance since inception — the 'prove it' view."""
+        from .analytics import track_record as _build
+        tr = _build(self.repo, self.broker.get_account(), settings.starting_capital)
+        tr["mode"] = "live" if self.broker.is_live else "paper"
+        tr["broker"] = self.broker.name
+        return tr
+
     def risk_snapshot(self) -> dict:
         snap = self.risk.snapshot()
         snap["memory"] = self.memory.stats()
@@ -183,6 +202,20 @@ class AIFOSKernel:
     def set_autonomous(self, on: bool) -> None:
         self.autonomous = on and not self.risk.kill_switch_active
         self.bus.publish("control", {"event": "autonomous", "on": self.autonomous})
+
+    def reset_track_record(self) -> dict:
+        """Wipe paper history and restore the starting book — 'start the clock' on a
+        fresh forward test. Paper-only; refuses on a live account."""
+        if self.broker.is_live:
+            raise RuntimeError("refusing to reset a LIVE account")
+        self.repo.reset_paper()
+        if hasattr(self.broker, "reset"):
+            self.broker.reset(settings.starting_capital)
+        self.risk.reset_kill_switch()
+        self.autonomous = False
+        eq = self.snapshot_equity()  # seed the inception baseline point
+        self.bus.publish("control", {"event": "track_record_reset", "equity": eq})
+        return self.track_record()
 
     # --- internals -------------------------------------------------------
     def _persist_decision(self, d: TradeDecision) -> None:

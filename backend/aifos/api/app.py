@@ -36,7 +36,7 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-AUTONOMOUS_INTERVAL_S = 15
+AUTONOMOUS_INTERVAL_S = settings.autonomous_interval_s
 
 
 # --- request models ------------------------------------------------------
@@ -67,6 +67,10 @@ class AutonomousReq(BaseModel):
     enabled: bool | None = None  # Lovable UI sends {enabled}; accept either
 
 
+class ResetReq(BaseModel):
+    confirm: bool = False  # must be true to wipe the paper track record
+
+
 class VideoReq(BaseModel):
     url: str
 
@@ -84,7 +88,9 @@ class AskReq(BaseModel):
 @app.on_event("startup")
 async def _startup() -> None:
     init_db()
-    get_kernel()  # warm the singleton + connect broker
+    k = get_kernel()  # warm the singleton + connect broker
+    if not k.repo.equity_curve(1):
+        k.snapshot_equity()  # seed an inception baseline so the curve starts at day one
     asyncio.create_task(_autonomous_loop())
     logger.info("AIFOS online | broker=%s live=%s llm=%s",
                 settings.broker, settings.live_trading_enabled, settings.llm_provider)
@@ -185,6 +191,21 @@ async def analytics(symbol: str = settings.default_symbol,
         return {"live": portfolio_analytics(k.repo),
                 "strategies": strategy_comparison(k.provider, symbol, interval)}
     return await run_in_threadpool(_run)
+
+
+@app.get("/api/track-record")
+async def track_record_ep() -> dict:
+    """Honest forward paper performance since inception — prove it before real money."""
+    return await run_in_threadpool(get_kernel().track_record)
+
+
+@app.post("/api/track-record/reset")
+async def track_record_reset_ep(req: ResetReq) -> dict:
+    if not req.confirm:
+        return {"ok": False,
+                "error": 'send {"confirm": true} to wipe the paper track record and restart the clock'}
+    summary = await run_in_threadpool(get_kernel().reset_track_record)
+    return {"ok": True, **summary}
 
 
 @app.get("/api/analytics/correlation")

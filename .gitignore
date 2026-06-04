@@ -24,3 +24,7 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# runtime logs
+logs/
+backend/logs/

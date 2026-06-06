@@ -71,6 +71,7 @@ class AIFOSKernel:
         self.option_book: dict = {}                 # paper options strategies (mirrors DB)
         self._load_options()
         self._load_broker_state()   # rehydrate paper cash + open positions across restarts
+        self._load_strategy_state()  # apply persisted enabled/disabled flags (MC enforcement sticks)
 
     # --- context ---------------------------------------------------------
     def build_context(self, symbol: str, interval: str = "1d") -> MarketContext:
@@ -506,6 +507,22 @@ class AIFOSKernel:
         except Exception:  # noqa: BLE001 - persistence must never break trading
             logger.exception("failed to save broker state")
 
+    def _load_strategy_state(self) -> None:
+        """Apply persisted enabled/disabled strategy flags on startup (MC enforcement sticks)."""
+        try:
+            from .strategies import set_enabled
+            for name, enabled in self.repo.load_strategy_states().items():
+                set_enabled(name, enabled)
+        except Exception:  # noqa: BLE001 - cold/missing table must not crash startup
+            logger.exception("failed to load persisted strategy state")
+
+    def _persist_strategy_state(self) -> None:
+        try:
+            from .strategies import REGISTRY, is_enabled
+            self.repo.save_strategy_states({n: is_enabled(n) for n in REGISTRY})
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to persist strategy state")
+
     def close_option_paper(self, oid: int) -> dict:
         pos = self.option_book.get(int(oid))
         if not pos:
@@ -668,6 +685,8 @@ class AIFOSKernel:
                 disabled.append({"strategy": name,
                                  "reason": f"fails robustness on all {len(results)} markets "
                                            f"(best return {best:+.1%})"})
+        if apply and disabled:
+            self._persist_strategy_state()  # MC enforcement now sticks across restarts
         return {"basket": basket, "applied": apply, "disabled": disabled, "report": report,
                 "note": "Auto-disabled strategies that fail Monte Carlo robustness on EVERY tested "
                         "market. Re-enable manually in the marketplace if you disagree."}
@@ -851,6 +870,7 @@ class AIFOSKernel:
         if name not in REGISTRY:
             return {"ok": False, "error": f"unknown strategy '{name}'"}
         set_enabled(name, bool(on))
+        self._persist_strategy_state()  # so manual toggles survive a restart
         return {"ok": True, "name": name, "enabled": is_enabled(name)}
 
     def explain(self, symbol: str, interval: str = "1d") -> dict:

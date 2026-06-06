@@ -11,6 +11,7 @@ from .models import (
     JournalEntry,
     OptionPositionRecord,
     PaperBrokerState,
+    StrategyStateRecord,
     TradeRecord,
     VideoJobRecord,
 )
@@ -223,3 +224,18 @@ class Repository:
                 return None
             return {"cash": row.cash, "contributed": row.contributed,
                     "realized_pnl": row.realized_pnl, "positions": row.positions or []}
+
+    # --- strategy enabled/disabled state (survives restarts) -------------
+    def save_strategy_states(self, states: dict) -> None:
+        with get_session() as s:
+            for name, enabled in states.items():
+                row = s.get(StrategyStateRecord, name)
+                if row is None:
+                    row = StrategyStateRecord(name=name)
+                    s.add(row)
+                row.enabled = bool(enabled)
+
+    def load_strategy_states(self) -> dict:
+        with get_session() as s:
+            rows = s.execute(select(StrategyStateRecord)).scalars().all()
+            return {r.name: bool(r.enabled) for r in rows}

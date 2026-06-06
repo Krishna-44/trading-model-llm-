@@ -116,3 +116,11 @@ class PaperBrokerState(Base):
     contributed: Mapped[float] = mapped_column(Float, default=0.0)
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     positions: Mapped[list] = mapped_column(JSON, default=list)  # [{symbol, qty, avg_price}]
+
+
+class StrategyStateRecord(Base):
+    """Persisted enabled/disabled flag per strategy, so manual toggles and Monte
+    Carlo enforcement survive restarts (a fragile strategy stays disabled)."""
+    __tablename__ = "strategy_state"
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)

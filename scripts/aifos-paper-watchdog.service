@@ -1,0 +1,22 @@
+# Health watchdog — kickstarts aifos-paper if /api/health is unreachable.
+# Pairs with aifos-paper-watchdog.timer (fires every 2 minutes).
+#
+# Install:
+#   sudo cp scripts/aifos-paper-watchdog.service /etc/systemd/system/
+#   sudo cp scripts/aifos-paper-watchdog.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now aifos-paper-watchdog.timer
+
+[Unit]
+Description=AIFOS paper-forward health watchdog (kickstart if unhealthy)
+After=aifos-paper.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '\
+  for i in 1 2 3; do \
+    if curl -sf --max-time 5 http://127.0.0.1:8001/api/health >/dev/null; then exit 0; fi; \
+    sleep 3; \
+  done; \
+  logger -t aifos-watchdog "health unreachable -> restarting aifos-paper"; \
+  systemctl restart aifos-paper.service'

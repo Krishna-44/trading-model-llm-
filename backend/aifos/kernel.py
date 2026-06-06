@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .agents.base import MarketContext, TradeDecision
 from .agents.committee import AgentCommittee
@@ -313,7 +314,32 @@ class AIFOSKernel:
             except Exception:  # noqa: BLE001
                 pass
         self._save_broker_state()  # persist the book each cycle so positions survive a restart
+        self._check_readiness_alert()
         return out
+
+    def _check_readiness_alert(self) -> None:
+        """Fire a one-shot alert the first time readiness gates flip to 6/6 — the
+        empirical signal that micro-stage real money is permitted. Idempotent via
+        a flag file so it's never repeated, even across restarts."""
+        try:
+            ds = self.deployment()
+            r = ds.get("readiness") or {}
+            if not (r.get("ready") and r.get("passed") == r.get("total")):
+                return
+            flag = Path(settings.data_cache_dir) / "readiness_alerted.flag"
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            if flag.exists():
+                return
+            msg = (f"All {r['total']} go-live readiness gates have passed. Micro-stage real "
+                   f"money is now mechanically permitted (₹2,000/trade cap). Review the "
+                   f"forward record before arming AIFOS_LIVE_TRADING_ENABLED.")
+            self.notifier.send("READY: 6/6 gates passed", msg, "critical")
+            self.bus.publish("control", {"event": "readiness_ready",
+                                          "passed": r["passed"], "total": r["total"]})
+            flag.write_text(msg)
+            logger.warning("READINESS ALERT: 6/6 gates passed — micro real money permitted")
+        except Exception:  # noqa: BLE001 - alerting must never break the trading loop
+            logger.exception("readiness alert check failed")
 
     # --- views -----------------------------------------------------------
     def candles(self, symbol: str, interval: str = "1d", lookback: int = 240) -> dict:

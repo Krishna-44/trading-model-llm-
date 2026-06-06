@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..indicators import adx, bollinger, donchian, ema, macd, rsi, vwap
+from ..indicators import adx, atr, bollinger, donchian, ema, keltner, macd, rsi, supertrend, vwap
 from .base import Strategy
 
 
@@ -78,4 +78,50 @@ class BreakoutVolumeStrategy(Strategy):
         surge = vol > 1.5 * vol.rolling(20, min_periods=5).mean()
         long = (c >= dc["upper"].shift(1)) & surge
         short = (c <= dc["lower"].shift(1)) & surge
+        return _pos(c.index, long, short)
+
+
+class SupertrendStrategy(Strategy):
+    """Supertrend (ATR-band) trend-follower with a trend-strength filter (ADX>=20),
+    so it stays out of chop where Supertrend whipsaws."""
+    name = "supertrend"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        c = df["close"]
+        st = supertrend(df["high"], df["low"], c, window=10, mult=3.0)
+        a = adx(df["high"], df["low"], c)["adx"]
+        trending = a >= 20
+        return _pos(c.index, (st["direction"] > 0) & trending, (st["direction"] < 0) & trending)
+
+
+class KeltnerSqueezeStrategy(Strategy):
+    """Keltner-channel squeeze breakout. Bollinger inside Keltner = volatility
+    contraction; trade the FIRST close outside the Keltner band in either direction
+    (volatility expansion). Honest, published TTM-squeeze structure."""
+    name = "keltner_squeeze"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        c = df["close"]
+        bb = bollinger(c, 20, 2.0)
+        kc = keltner(df["high"], df["low"], c, 20, 1.5)
+        squeezed = (bb["lower"] >= kc["lower"]) & (bb["upper"] <= kc["upper"])
+        was_squeezed = squeezed.shift(1).fillna(False)
+        long = was_squeezed & (c > kc["upper"])
+        short = was_squeezed & (c < kc["lower"])
+        return _pos(c.index, long, short)
+
+
+class AtrMomentumStrategy(Strategy):
+    """Volatility-expansion momentum: enter on a price move ≥ 1.5×ATR(14) in the
+    direction of the EMA50 trend, with a 200-MA regime filter. Captures impulsive
+    moves out of consolidation while filtering out aimless drift."""
+    name = "atr_momentum"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        c = df["close"]
+        a = atr(df["high"], df["low"], c, 14)
+        bar_move = c - c.shift(1)
+        e50, e200 = ema(c, 50), ema(c, 200)
+        long = (bar_move >= 1.5 * a) & (e50 > e200)
+        short = (bar_move <= -1.5 * a) & (e50 < e200)
         return _pos(c.index, long, short)

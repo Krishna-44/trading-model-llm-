@@ -1,9 +1,12 @@
 from .base import Strategy, StrategySignal
 from .library import (
+    AtrMomentumStrategy,
     BollingerReversionStrategy,
     BreakoutVolumeStrategy,
     EmaTrendStrategy,
+    KeltnerSqueezeStrategy,
     RsiMacdStrategy,
+    SupertrendStrategy,
     VwapTrendStrategy,
 )
 from .mean_reversion import MeanReversionStrategy
@@ -17,6 +20,9 @@ REGISTRY: dict[str, type[Strategy]] = {
     "rsi_macd": RsiMacdStrategy,
     "bollinger_reversion": BollingerReversionStrategy,
     "breakout_volume": BreakoutVolumeStrategy,
+    "supertrend": SupertrendStrategy,
+    "keltner_squeeze": KeltnerSqueezeStrategy,
+    "atr_momentum": AtrMomentumStrategy,
 }
 
 # Human-facing descriptions for the strategy marketplace.
@@ -35,6 +41,12 @@ STRATEGY_INFO = {
                             "desc": "Fade the outer Bollinger band on an RSI extreme while ADX is low (ranging)."},
     "breakout_volume": {"label": "Breakout + Volume", "bias": "breakout", "best_for": "momentum / volatility expansion",
                         "desc": "Donchian breakout confirmed by a volume surge — momentum & volatility plays."},
+    "supertrend": {"label": "Supertrend (ATR)", "bias": "trend", "best_for": "trending markets",
+                   "desc": "Classic ATR-band Supertrend, gated by ADX≥20 to skip chop where it whipsaws."},
+    "keltner_squeeze": {"label": "Keltner Squeeze", "bias": "breakout", "best_for": "volatility expansion",
+                        "desc": "TTM-style squeeze: BBands inside Keltner = compression; trade the first close outside Keltner."},
+    "atr_momentum": {"label": "ATR Momentum", "bias": "momentum", "best_for": "impulsive moves",
+                     "desc": "Enter on ≥1.5×ATR bar move with EMA50/200 regime alignment — captures volatility expansion."},
 }
 
 # Runtime enable/disable (in-memory; StrategyEvolution only ranks/selects enabled ones).

@@ -315,7 +315,46 @@ class AIFOSKernel:
                 pass
         self._save_broker_state()  # persist the book each cycle so positions survive a restart
         self._check_readiness_alert()
+        self._cook_step()           # one cooking candidate per cycle — background discovery
         return out
+
+    # --- continuous strategy cooking (background research) -------------
+    def _cook_step(self) -> None:
+        """Run one cooking round per cycle: pick a candidate not recently cooked,
+        backtest + MC, persist verdict. Honest discovery — most rounds DROP."""
+        try:
+            from .cooking import CANDIDATES, cook_one, pick_next_candidate
+            recent = [r["variant_id"] for r in self.repo.recent_cooking(len(CANDIDATES))]
+            cand = pick_next_candidate(recent)
+            if cand is None:
+                return
+            result = cook_one(self.provider, cand)
+            self.repo.save_cooking_result(**result)
+            logger.info("cook %s -> %s (avg %.2f%%, %d/%d MC robust)",
+                        result["variant_id"], result["verdict"],
+                        result["avg_return"] * 100, result["mc_robust_count"],
+                        result["markets_tested"])
+        except Exception:  # noqa: BLE001 - cooking must never break trading
+            logger.exception("cooking step failed")
+
+    def cooking_status(self) -> dict:
+        """What's cooking right now — counts, recent rounds, leaderboard."""
+        from .cooking import CANDIDATES
+        recent = self.repo.recent_cooking(10)
+        leaderboard = self.repo.cooking_leaderboard(8)
+        counts = self.repo.cooking_counts()
+        last_ts = recent[0]["ts"] if recent else None
+        return {
+            "candidates_total": len(CANDIDATES),
+            "rounds_run": counts["total"],
+            "verdicts": {"keep": counts["keep"], "review": counts["review"],
+                         "drop": counts["drop"]},
+            "last_round_ts": last_ts,
+            "recent": recent,
+            "leaderboard": leaderboard,
+            "note": "Background research. Most rounds DROP — that's honest. KEEP / "
+                    "REVIEW variants are candidates for promotion, never auto-deployed.",
+        }
 
     def _check_readiness_alert(self) -> None:
         """Fire a one-shot alert the first time readiness gates flip to 6/6 — the

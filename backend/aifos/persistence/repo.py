@@ -5,6 +5,7 @@ from sqlalchemy import delete, desc, func, select
 
 from .db import get_session
 from .models import (
+    CookingResult,
     DecisionRecord,
     EquityPoint,
     ExtractedStrategyRecord,
@@ -239,3 +240,46 @@ class Repository:
         with get_session() as s:
             rows = s.execute(select(StrategyStateRecord)).scalars().all()
             return {r.name: bool(r.enabled) for r in rows}
+
+    # --- cooking (continuous strategy discovery) ------------------------
+    def save_cooking_result(self, **kw) -> int:
+        with get_session() as s:
+            rec = CookingResult(**kw)
+            s.add(rec)
+            s.flush()
+            return rec.id
+
+    def recent_cooking(self, limit: int = 30) -> list[dict]:
+        with get_session() as s:
+            rows = s.execute(
+                select(CookingResult).order_by(desc(CookingResult.ts)).limit(limit)
+            ).scalars().all()
+            return [_row(r) for r in rows]
+
+    def cooking_leaderboard(self, limit: int = 10) -> list[dict]:
+        """Best variant per variant_id (latest result), ranked by mc_robust_count
+        then avg_return — the honest "what's working in cooking" ranking."""
+        with get_session() as s:
+            rows = s.execute(select(CookingResult).order_by(desc(CookingResult.ts))).scalars().all()
+            seen: dict[str, dict] = {}
+            for r in rows:
+                if r.variant_id not in seen:
+                    seen[r.variant_id] = _row(r)
+            ranked = sorted(seen.values(),
+                            key=lambda x: (x["mc_robust_count"], x["avg_return"]),
+                            reverse=True)
+            return ranked[:limit]
+
+    def cooking_counts(self) -> dict:
+        with get_session() as s:
+            total = int(s.execute(select(func.count()).select_from(CookingResult)).scalar() or 0)
+            keep = int(s.execute(
+                select(func.count()).select_from(CookingResult)
+                .where(CookingResult.verdict == "KEEP")
+            ).scalar() or 0)
+            review = int(s.execute(
+                select(func.count()).select_from(CookingResult)
+                .where(CookingResult.verdict == "REVIEW")
+            ).scalar() or 0)
+            return {"total": total, "keep": keep, "review": review,
+                    "drop": total - keep - review}

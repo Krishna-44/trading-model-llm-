@@ -10,6 +10,7 @@ import { StrategyMarket } from "@/components/aifos/StrategyMarket";
 import { VideoStrategies } from "@/components/aifos/VideoStrategies";
 import { PaperTrading } from "@/components/aifos/PaperTrading";
 import { Robustness } from "@/components/aifos/Robustness";
+import { Cooking } from "@/components/aifos/Cooking";
 import { TradeLog } from "@/components/aifos/Activity";
 import { TodayPanel } from "@/components/aifos/Today";
 import { CandleRead } from "@/components/aifos/CandleRead";
@@ -88,6 +89,9 @@ function Dashboard() {
 
         {/* robustness · Monte Carlo enforcement (forward instance) */}
         <div className="col-span-12 lg:col-span-5"><Robustness symbol={symbol} /></div>
+
+        {/* strategies cooking — continuous background discovery on :8001 */}
+        <div className="col-span-12"><Cooking /></div>
 
         {/* paper options lab — practise strategies with model-priced virtual money */}
         <div className="col-span-12"><OptionsLab symbol={symbol} /></div>

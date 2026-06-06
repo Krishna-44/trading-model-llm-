@@ -431,6 +431,12 @@ async def pnl_breakdown_ep() -> dict:
     return await run_in_threadpool(get_kernel().pnl_breakdown)
 
 
+@app.get("/api/cooking")
+async def cooking_status_ep() -> dict:
+    """Background strategy discovery — what's been cooked, leaderboard, verdicts."""
+    return await run_in_threadpool(get_kernel().cooking_status)
+
+
 @app.post("/api/strategies/enforce")
 async def strategies_enforce_ep(payload: dict | None = None) -> dict:
     """Monte Carlo enforcement: auto-disable strategies that fail robustness on every

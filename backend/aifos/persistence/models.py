@@ -106,6 +106,23 @@ class VideoJobRecord(Base):
     extracted_id: Mapped[int] = mapped_column(Integer, default=0)  # -> extracted_strategies.id
 
 
+class CookingResult(Base):
+    """One round of strategy "cooking" — a backtest + MC evaluation of a parameter
+    variant on the multi-market basket. Append-only history feeds the leaderboard."""
+    __tablename__ = "cooking_results"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    variant_id: Mapped[str] = mapped_column(String(96), index=True)  # base_strategy + param signature
+    base: Mapped[str] = mapped_column(String(32))
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    avg_return: Mapped[float] = mapped_column(Float, default=0.0)
+    markets_positive: Mapped[int] = mapped_column(Integer, default=0)
+    mc_robust_count: Mapped[int] = mapped_column(Integer, default=0)
+    markets_tested: Mapped[int] = mapped_column(Integer, default=0)
+    verdict: Mapped[str] = mapped_column(String(12), default="REVIEW")  # KEEP / REVIEW / DROP
+    note: Mapped[str] = mapped_column(String(240), default="")
+
+
 class PaperBrokerState(Base):
     """Singleton snapshot (id=1) of the paper broker — cash + open positions — so the
     live book survives restarts/reboots. True 24/7 continuity for the forward test."""

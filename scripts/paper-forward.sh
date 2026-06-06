@@ -38,6 +38,10 @@ write_main_plist() {
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
+    <!-- caffeinate -is keeps the Mac awake (idle + AC system sleep) for as long
+         as the service runs; stops the moment the service is stopped or crashes. -->
+    <string>/usr/bin/caffeinate</string>
+    <string>-is</string>
     <string>$UVICORN</string>
     <string>aifos.api.app:app</string>
     <string>--host</string><string>127.0.0.1</string>

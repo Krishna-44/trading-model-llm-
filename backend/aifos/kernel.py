@@ -1003,11 +1003,15 @@ class AIFOSKernel:
         self.autonomous = on and not self.risk.kill_switch_active
         self.bus.publish("control", {"event": "autonomous", "on": self.autonomous})
 
-    def start_paper_marathon(self) -> dict:
+    def start_paper_marathon(self, *, light: bool = False) -> dict:
         """PAPER-only: run the autonomous loop CONTINUOUSLY with no daily-loss
         auto-stop, compounding realized P&L into position sizing, until stopped or
         capital is exhausted. Refuses on a live account (the kill switch is sacred
-        for real money)."""
+        for real money).
+
+        light=True skips the marathon_status() quote fetch — used at BOOT so the
+        FastAPI startup event never blocks on yfinance (a hung quote fetch there
+        prevents uvicorn from serving at all)."""
         if self.broker.is_live:
             raise RuntimeError("marathon is paper-only; refusing on a LIVE account")
         self.risk.reset_kill_switch()
@@ -1016,13 +1020,15 @@ class AIFOSKernel:
         self.bus.publish("control", {"event": "marathon", "on": True})
         self.notifier.send("Paper marathon started",
                            "Continuous paper trading — no daily-loss stop, profits compounded.", "info")
+        if light:
+            return {"marathon": True, "autonomous": True, "mode": "paper"}
         return self.marathon_status()
 
     def stop_paper_marathon(self) -> dict:
         self.risk.marathon = False
         self.autonomous = False
         self.bus.publish("control", {"event": "marathon", "on": False})
-        return self.marathon_status()
+        return {"marathon": False, "autonomous": False, "mode": "paper"}
 
     def marathon_status(self) -> dict:
         acct = self.broker.get_account()

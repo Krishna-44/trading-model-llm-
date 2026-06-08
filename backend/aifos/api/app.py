@@ -119,7 +119,7 @@ async def _startup() -> None:
     if not k.repo.equity_curve(1):
         k.snapshot_equity()  # seed an inception baseline so the curve starts at day one
     if settings.marathon_on_start and not k.broker.is_live:  # continuous paper, no daily-loss stop
-        k.start_paper_marathon()
+        k.start_paper_marathon(light=True)  # light=no quote fetch -> startup never blocks on yfinance
         logger.info("PAPER MARATHON armed at boot (continuous, no daily-loss auto-stop)")
     elif settings.autonomous_on_start:  # service mode: arm the loop at boot, no manual toggle
         k.set_autonomous(True)

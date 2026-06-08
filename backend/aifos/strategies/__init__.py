@@ -3,9 +3,11 @@ from .library import (
     AtrMomentumStrategy,
     BollingerReversionStrategy,
     BreakoutVolumeStrategy,
+    EmaTrendFastStrategy,
     EmaTrendStrategy,
     KeltnerSqueezeStrategy,
     RsiMacdStrategy,
+    SupertrendFastStrategy,
     SupertrendStrategy,
     VwapTrendStrategy,
 )
@@ -23,6 +25,8 @@ REGISTRY: dict[str, type[Strategy]] = {
     "supertrend": SupertrendStrategy,
     "keltner_squeeze": KeltnerSqueezeStrategy,
     "atr_momentum": AtrMomentumStrategy,
+    "ema_trend_fast": EmaTrendFastStrategy,       # promoted from cooking
+    "supertrend_fast": SupertrendFastStrategy,    # promoted from cooking
 }
 
 # Human-facing descriptions for the strategy marketplace.
@@ -47,6 +51,10 @@ STRATEGY_INFO = {
                         "desc": "TTM-style squeeze: BBands inside Keltner = compression; trade the first close outside Keltner."},
     "atr_momentum": {"label": "ATR Momentum", "bias": "momentum", "best_for": "impulsive moves",
                      "desc": "Enter on ≥1.5×ATR bar move with EMA50/200 regime alignment — captures volatility expansion."},
+    "ema_trend_fast": {"label": "EMA Trend (fast 10/30/100)", "bias": "trend", "best_for": "trending markets",
+                       "desc": "Cooking-discovered fast EMA stack — beat the default 20/50/200 across markets. Forward-testing live."},
+    "supertrend_fast": {"label": "Supertrend (fast 7/4)", "bias": "trend", "best_for": "trending markets",
+                        "desc": "Cooking-discovered tight Supertrend (ADX≥15) — positive on all 4 basket markets. Forward-testing live."},
 }
 
 # Runtime enable/disable (in-memory; StrategyEvolution only ranks/selects enabled ones).

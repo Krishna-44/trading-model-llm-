@@ -125,3 +125,30 @@ class AtrMomentumStrategy(Strategy):
         long = (bar_move >= 1.5 * a) & (e50 > e200)
         short = (bar_move <= -1.5 * a) & (e50 < e200)
         return _pos(c.index, long, short)
+
+
+# ── PROMOTED from the cooking discovery loop (validated MC-robust across markets) ──
+class EmaTrendFastStrategy(Strategy):
+    """Faster EMA trend (10/30/100). Cooking discovered this beats the default
+    20/50/200 across the multi-market basket (+22% avg, MC-robust 2/4, positive 3/4).
+    Captures trends earlier; promoted to forward-test it live."""
+    name = "ema_trend_fast"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        c = df["close"]
+        e10, e30, e100 = ema(c, 10), ema(c, 30), ema(c, 100)
+        return _pos(c.index, (e10 > e30) & (e30 > e100), (e10 < e30) & (e30 < e100))
+
+
+class SupertrendFastStrategy(Strategy):
+    """Tighter Supertrend (7-period ATR, 4× band, ADX≥15). Cooking found this
+    positive on ALL 4 basket markets (+14.7% avg, MC-robust 2/4) — the broadest-
+    robust new variant. Promoted to forward-test it live."""
+    name = "supertrend_fast"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        c = df["close"]
+        st = supertrend(df["high"], df["low"], c, window=7, mult=4.0)
+        a = adx(df["high"], df["low"], c)["adx"]
+        ok = a >= 15
+        return _pos(c.index, (st["direction"] > 0) & ok, (st["direction"] < 0) & ok)

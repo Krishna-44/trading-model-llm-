@@ -22,6 +22,7 @@ from .ported import (
     IchimokuCloudStrategy,
     MacdCrossStrategy,
 )
+from .web_sourced import ConnorsDouble7Strategy, ConnorsRsi2Strategy
 
 REGISTRY: dict[str, type[Strategy]] = {
     "momentum": MomentumStrategy,
@@ -44,6 +45,9 @@ REGISTRY: dict[str, type[Strategy]] = {
     "donchian_turtle": DonchianTurtleStrategy,
     "heikin_trend": HeikinTrendStrategy,
     "hull_cross": HullCrossStrategy,
+    # ── discovered via web research (Connors mean-reversion); gauntlet-graded ──
+    "rsi2_connors": ConnorsRsi2Strategy,
+    "double7_connors": ConnorsDouble7Strategy,
 }
 
 # Human-facing descriptions for the strategy marketplace.
@@ -87,6 +91,11 @@ STRATEGY_INFO = {
                      "desc": "Two consecutive Heikin-Ashi candles in-trend, aligned with EMA50>EMA200. Gauntlet: +19% avg, positive 4/4, MC-robust 2/4 — sole ported survivor. ON WATCH: edge is BTC-concentrated + cost-fragile on 3/4 markets. Forward-testing live."},
     "hull_cross": {"label": "Hull MA Cross", "bias": "trend", "best_for": "faster trend turns", "source": "jesse",
                    "desc": "Low-lag Hull Moving Average fast/slow cross with a rising-slow filter — turns faster than an EMA cross while staying smooth."},
+    # ── web-researched (Connors short-term mean reversion) ──
+    "rsi2_connors": {"label": "Connors RSI(2)", "bias": "range", "best_for": "equities / range-bound FX", "source": "web: Connors",
+                     "desc": "Larry Connors' RSI(2) mean reversion: buy washed-out RSI(2)<5 above the 200-SMA, exit above the 5-SMA. Gauntlet KEEP but cost-fragile (1/4) — registered, ON WATCH, not live."},
+    "double7_connors": {"label": "Connors Double-7s", "bias": "range", "best_for": "equities / FX mean reversion", "source": "web: Connors",
+                        "desc": "Connors' Double-7s: above the 200-SMA, buy a new 7-day low, sell a new 7-day high (mirror below). Gauntlet PROMOTE — +8.2% avg, positive 3/4, MC-robust 3/4, positive on range-bound FX. Diversifies the trend-heavy set. Forward-testing live."},
 }
 
 # Strategies ported from freqtrade/jesse — started DISABLED until they survived
@@ -99,8 +108,14 @@ PORTED_PENDING: set[str] = {
     "donchian_turtle", "hull_cross",
 }
 
+# Web-researched strategies graded by the gauntlet. double7_connors PROMOTED
+# (pos 3/4, MC-robust 3/4, cost-survive 2/4 — and positive on range-bound FX, a
+# real diversifier for the trend-heavy set). rsi2_connors stays DISABLED (KEEP but
+# cost-fragile 1/4 — registered/on-watch, not live).
+WEB_PENDING: set[str] = {"rsi2_connors"}
+
 # Runtime enable/disable (in-memory; StrategyEvolution only ranks/selects enabled ones).
-ENABLED: set[str] = set(REGISTRY) - PORTED_PENDING
+ENABLED: set[str] = set(REGISTRY) - PORTED_PENDING - WEB_PENDING
 
 
 def is_enabled(name: str) -> bool:

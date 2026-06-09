@@ -718,7 +718,7 @@ class AIFOSKernel:
         EVERY market it was tested on (unprofitable, or an edge that collapses
         without its single best trade). Honest: it can only DISABLE a fragile
         strategy, never enable one; survivors on any market are kept."""
-        from .backtest import monte_carlo, run_backtest
+        from .backtest import cost_stress, monte_carlo, run_backtest
         from .strategies import REGISTRY, build_strategy, is_enabled, set_enabled
         basket = ["^NSEI", "USDINR=X", "BTC-USD", "RELIANCE.NS"]
         disabled: list[dict] = []
@@ -729,27 +729,35 @@ class AIFOSKernel:
                 try:
                     df = self.provider.history(sym, settings.default_interval)
                     df.attrs["symbol"] = sym
-                    res = run_backtest(df, build_strategy(name), interval=settings.default_interval,
+                    strat = build_strategy(name)
+                    res = run_backtest(df, strat, interval=settings.default_interval,
                                        capital=settings.starting_capital)
                     mc = monte_carlo(res.trades)
+                    cs = cost_stress(df, strat, interval=settings.default_interval,
+                                     capital=settings.starting_capital)
                     tr = float(res.metrics["total_return"])
                     wob = mc.get("return_without_best_trade")
-                    robust = tr > 0 and not (wob is not None and wob <= 0 < tr)
-                    results.append({"symbol": sym, "total_return": round(tr, 4), "robust": robust})
+                    # robust = profitable AND not one-trade-dependent AND survives 2× costs
+                    robust = (tr > 0
+                              and not (wob is not None and wob <= 0 < tr)
+                              and cs["survives_2x_cost"])
+                    results.append({"symbol": sym, "total_return": round(tr, 4),
+                                    "robust": robust, "cost_fragile": cs["cost_fragile"]})
                 except Exception:  # noqa: BLE001
                     continue
             if not results:
                 continue
             survives = any(r["robust"] for r in results)
             best = max(r["total_return"] for r in results)
-            report.append({"strategy": name, "survives": survives,
-                           "best_return": best, "markets": len(results)})
+            report.append({"strategy": name, "survives": survives, "best_return": best,
+                           "markets": len(results),
+                           "cost_fragile_markets": sum(1 for r in results if r["cost_fragile"])})
             if not survives and is_enabled(name):
                 if apply:
                     set_enabled(name, False)
                 disabled.append({"strategy": name,
                                  "reason": f"fails robustness on all {len(results)} markets "
-                                           f"(best return {best:+.1%})"})
+                                           f"(best return {best:+.1%}; MC + 2×-cost stress)"})
         if apply and disabled:
             self._persist_strategy_state()  # MC enforcement now sticks across restarts
         return {"basket": basket, "applied": apply, "disabled": disabled, "report": report,

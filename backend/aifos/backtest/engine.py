@@ -131,6 +131,37 @@ def walk_forward(
             "note": "out-of-sample aggregate across expanding folds"}
 
 
+def cost_stress(df: pd.DataFrame, strategy: Strategy, *, interval: str = "1d",
+                capital: float = 1_000_000.0, base_cost_bps: float = 5.0,
+                base_slip_bps: float = 2.0) -> dict:
+    """Re-run the backtest at escalating transaction costs (1× → 3× commission +
+    slippage) to test whether the edge survives realistic-worse friction. An edge
+    that is only profitable at near-frictionless costs is NOT real — spreads widen,
+    fills slip, and a strategy that can't pay for its own turnover should be cut.
+
+    Returns the net return at each cost multiple plus ``cost_fragile`` = profitable
+    at 1× but underwater by 2×.
+    """
+    levels = []
+    for m in (1.0, 1.5, 2.0, 3.0):
+        try:
+            res = run_backtest(df, strategy, interval=interval, capital=capital,
+                               cost_bps=base_cost_bps * m, slippage_bps=base_slip_bps * m)
+            levels.append({"mult": m, "total_return": round(float(res.metrics["total_return"]), 4)})
+        except Exception:  # noqa: BLE001
+            levels.append({"mult": m, "total_return": 0.0})
+    base = levels[0]["total_return"]
+    r2x = next((x["total_return"] for x in levels if x["mult"] == 2.0), 0.0)
+    return {
+        "levels": levels,
+        "base_return": base,
+        "return_at_2x_cost": r2x,
+        "survives_2x_cost": bool(r2x > 0),
+        "cost_fragile": bool(base > 0 and r2x <= 0),
+        "note": "net return vs escalating slippage+commission; fragile = positive at 1× but gone by 2×",
+    }
+
+
 def monte_carlo(trades: list[dict], *, n_sims: int = 2000, seed: int = 7) -> dict:
     """Bootstrap the per-trade returns to estimate the DISTRIBUTION of outcomes.
 

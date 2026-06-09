@@ -28,3 +28,4 @@ npm-debug.log*
 # runtime logs
 logs/
 backend/logs/
+backend/aifos/_overnight_kernel_REFERENCE.md

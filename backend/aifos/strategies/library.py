@@ -152,3 +152,16 @@ class SupertrendFastStrategy(Strategy):
         a = adx(df["high"], df["low"], c)["adx"]
         ok = a >= 15
         return _pos(c.index, (st["direction"] > 0) & ok, (st["direction"] < 0) & ok)
+
+
+class EmaTrendFibStrategy(Strategy):
+    """Fibonacci-spaced EMA trend (13/34/89). Cooking's MOST MC-robust discovery
+    over 213 rounds — robust on 3/4 basket markets (vs 2/4 for the earlier
+    promotions), +16.5% avg, positive 3/4. The Fib spacing reacts a touch faster
+    than 20/50/200 while staying smoother than 10/30/100. Promoted to forward-test."""
+    name = "ema_trend_fib"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        c = df["close"]
+        e13, e34, e89 = ema(c, 13), ema(c, 34), ema(c, 89)
+        return _pos(c.index, (e13 > e34) & (e34 > e89), (e13 < e34) & (e34 < e89))

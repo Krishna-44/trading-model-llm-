@@ -4,6 +4,7 @@ from .library import (
     BollingerReversionStrategy,
     BreakoutVolumeStrategy,
     EmaTrendFastStrategy,
+    EmaTrendFibStrategy,
     EmaTrendStrategy,
     KeltnerSqueezeStrategy,
     RsiMacdStrategy,
@@ -35,6 +36,7 @@ REGISTRY: dict[str, type[Strategy]] = {
     "atr_momentum": AtrMomentumStrategy,
     "ema_trend_fast": EmaTrendFastStrategy,       # promoted from cooking
     "supertrend_fast": SupertrendFastStrategy,    # promoted from cooking
+    "ema_trend_fib": EmaTrendFibStrategy,         # promoted from cooking (most MC-robust, 3/4)
     # ── ported from the freqtrade / jesse ecosystems (graded by the gauntlet) ──
     "ichimoku_cloud": IchimokuCloudStrategy,
     "macd_cross": MacdCrossStrategy,
@@ -70,6 +72,8 @@ STRATEGY_INFO = {
                        "desc": "Cooking-discovered fast EMA stack — beat the default 20/50/200 across markets. Forward-testing live."},
     "supertrend_fast": {"label": "Supertrend (fast 7/4)", "bias": "trend", "best_for": "trending markets",
                         "desc": "Cooking-discovered tight Supertrend (ADX≥15) — positive on all 4 basket markets. Forward-testing live."},
+    "ema_trend_fib": {"label": "EMA Trend (Fib 13/34/89)", "bias": "trend", "best_for": "trending markets",
+                      "desc": "Cooking's most MC-robust discovery (3/4 markets over 213 rounds, +16.5% avg). Fibonacci-spaced EMA stack. Forward-testing live."},
     # ── ported from freqtrade / jesse (pattern lineage only; re-implemented honestly) ──
     "ichimoku_cloud": {"label": "Ichimoku Cloud", "bias": "trend", "best_for": "sustained trends", "source": "freqtrade",
                        "desc": "Price above/below the Kumo cloud + Tenkan/Kijun cross + bullish cloud. Chikou span deliberately excluded (look-ahead). A freqtrade staple."},

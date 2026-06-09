@@ -21,7 +21,7 @@ from .agents.governance import ExecutorAgent
 from .config import settings
 from .data.models import classify_asset
 from .data.providers import get_provider
-from .execution import get_broker
+from .execution import BadQuoteError, get_broker
 from .execution.base import LiveTradingDisabled
 from .indicators import atr as atr_ind
 from .memory.journal import SelfEvaluator
@@ -199,6 +199,9 @@ class AIFOSKernel:
             except LiveTradingDisabled as exc:
                 decision.reasoning += f" | execution blocked: {exc}"
                 logger.warning("execution blocked: %s", exc)
+            except BadQuoteError as exc:
+                decision.reasoning += f" | BAD-TICK GUARD: {exc}"
+                logger.error("refused to fill %s on a corrupt quote: %s", symbol, exc)
             if fill:
                 decision.executed = True
                 acct = self.broker.get_account()
@@ -272,7 +275,11 @@ class AIFOSKernel:
             hit_stop = (long and px <= plan["stop"]) or (not long and px >= plan["stop"])
             hit_target = (long and px >= plan["target"]) or (not long and px <= plan["target"])
             if hit_stop or hit_target:
-                fill = self.broker.close_position(sym)
+                try:
+                    fill = self.broker.close_position(sym)
+                except BadQuoteError:  # corrupt tick — hold the position, retry next cycle
+                    logger.error("BAD-TICK GUARD: skipped %s exit this cycle (corrupt quote)", sym)
+                    continue
                 if fill:
                     self._after_exit(sym, fill, "stop" if hit_stop else "target")
                     actions.append({"symbol": sym, "exit": "stop" if hit_stop else "target",
@@ -284,7 +291,11 @@ class AIFOSKernel:
                 half = abs(pos.qty) / 2.0
                 if half > 0:
                     side = OrderSide.SELL if long else OrderSide.BUY
-                    fill = self.broker.place_order(Order(symbol=sym, side=side, qty=half))
+                    try:
+                        fill = self.broker.place_order(Order(symbol=sym, side=side, qty=half))
+                    except BadQuoteError:  # corrupt tick — skip partial, retry next cycle
+                        logger.error("BAD-TICK GUARD: skipped %s partial this cycle (corrupt quote)", sym)
+                        continue
                     if fill:
                         plan["partial_done"] = True
                         plan["stop"] = entry  # lock breakeven after booking half

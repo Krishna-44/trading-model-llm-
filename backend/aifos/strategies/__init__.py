@@ -13,6 +13,14 @@ from .library import (
 )
 from .mean_reversion import MeanReversionStrategy
 from .momentum import MomentumStrategy
+from .ported import (
+    DmiAdxStrategy,
+    DonchianTurtleStrategy,
+    HeikinTrendStrategy,
+    HullCrossStrategy,
+    IchimokuCloudStrategy,
+    MacdCrossStrategy,
+)
 
 REGISTRY: dict[str, type[Strategy]] = {
     "momentum": MomentumStrategy,
@@ -27,6 +35,13 @@ REGISTRY: dict[str, type[Strategy]] = {
     "atr_momentum": AtrMomentumStrategy,
     "ema_trend_fast": EmaTrendFastStrategy,       # promoted from cooking
     "supertrend_fast": SupertrendFastStrategy,    # promoted from cooking
+    # ── ported from the freqtrade / jesse ecosystems (graded by the gauntlet) ──
+    "ichimoku_cloud": IchimokuCloudStrategy,
+    "macd_cross": MacdCrossStrategy,
+    "dmi_adx": DmiAdxStrategy,
+    "donchian_turtle": DonchianTurtleStrategy,
+    "heikin_trend": HeikinTrendStrategy,
+    "hull_cross": HullCrossStrategy,
 }
 
 # Human-facing descriptions for the strategy marketplace.
@@ -55,10 +70,33 @@ STRATEGY_INFO = {
                        "desc": "Cooking-discovered fast EMA stack — beat the default 20/50/200 across markets. Forward-testing live."},
     "supertrend_fast": {"label": "Supertrend (fast 7/4)", "bias": "trend", "best_for": "trending markets",
                         "desc": "Cooking-discovered tight Supertrend (ADX≥15) — positive on all 4 basket markets. Forward-testing live."},
+    # ── ported from freqtrade / jesse (pattern lineage only; re-implemented honestly) ──
+    "ichimoku_cloud": {"label": "Ichimoku Cloud", "bias": "trend", "best_for": "sustained trends", "source": "freqtrade",
+                       "desc": "Price above/below the Kumo cloud + Tenkan/Kijun cross + bullish cloud. Chikou span deliberately excluded (look-ahead). A freqtrade staple."},
+    "macd_cross": {"label": "MACD Cross (trend-filtered)", "bias": "momentum", "best_for": "trending markets", "source": "freqtrade",
+                   "desc": "The canonical freqtrade MACD strategy, gated by EMA200 so crosses are only taken with the higher-timeframe trend."},
+    "dmi_adx": {"label": "DMI / ADX Directional", "bias": "trend", "best_for": "strong trends", "source": "freqtrade/jesse",
+                "desc": "Wilder's +DI/−DI cross confirmed by ADX≥25 — trades only when a real trend is present, flat in chop."},
+    "donchian_turtle": {"label": "Donchian Turtle", "bias": "breakout", "best_for": "trending / breakout", "source": "jesse",
+                        "desc": "The classic Turtle channel breakout — long on new 20-bar highs, short on new lows, always-in. No volume filter (vs breakout_volume)."},
+    "heikin_trend": {"label": "Heikin-Ashi Trend", "bias": "trend", "best_for": "smooth trends", "source": "freqtrade/jesse",
+                     "desc": "Two consecutive Heikin-Ashi candles in-trend, aligned with EMA50>EMA200. Gauntlet: +19% avg, positive 4/4, MC-robust 2/4 — sole ported survivor. ON WATCH: edge is BTC-concentrated + cost-fragile on 3/4 markets. Forward-testing live."},
+    "hull_cross": {"label": "Hull MA Cross", "bias": "trend", "best_for": "faster trend turns", "source": "jesse",
+                   "desc": "Low-lag Hull Moving Average fast/slow cross with a rising-slow filter — turns faster than an EMA cross while staying smooth."},
+}
+
+# Strategies ported from freqtrade/jesse — started DISABLED until they survived
+# the Monte-Carlo + cost-stress gauntlet (scripts/grade_ported.py). Survivors are
+# enabled explicitly, exactly like cooking promotions — nothing auto-deploys.
+# Gauntlet outcome: only heikin_trend cleared the KEEP bar (and only on watch);
+# the five below were DROP/REVIEW and stay disabled (registered for the marketplace).
+PORTED_PENDING: set[str] = {
+    "ichimoku_cloud", "macd_cross", "dmi_adx",
+    "donchian_turtle", "hull_cross",
 }
 
 # Runtime enable/disable (in-memory; StrategyEvolution only ranks/selects enabled ones).
-ENABLED: set[str] = set(REGISTRY)
+ENABLED: set[str] = set(REGISTRY) - PORTED_PENDING
 
 
 def is_enabled(name: str) -> bool:

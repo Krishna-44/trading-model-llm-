@@ -8,10 +8,11 @@ from .base import (
     OrderType,
     Position,
 )
-from .paper import PaperBroker
+from .paper import BadQuoteError, PaperBroker
 from .registry import get_broker
 
 __all__ = [
     "BrokerAdapter", "Order", "Fill", "Position", "Account",
-    "OrderSide", "OrderType", "LiveTradingDisabled", "PaperBroker", "get_broker",
+    "OrderSide", "OrderType", "LiveTradingDisabled", "BadQuoteError",
+    "PaperBroker", "get_broker",
 ]

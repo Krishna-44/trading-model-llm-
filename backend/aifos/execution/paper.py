@@ -5,6 +5,7 @@ real money is ever connected."""
 from __future__ import annotations
 
 import logging
+import os
 from itertools import count
 
 from ..config import settings
@@ -12,6 +13,20 @@ from ..data.providers import MarketDataProvider, get_provider
 from .base import Account, BrokerAdapter, Fill, Order, OrderSide, Position
 
 logger = logging.getLogger("aifos.exec.paper")
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "").strip() or default)
+    except Exception:  # noqa: BLE001
+        return default
+
+
+class BadQuoteError(Exception):
+    """Raised when a market quote deviates so far from the reference price that it
+    can only be a corrupt tick — e.g. a feed glitch printing 9197 for a ~110 FX
+    rate. The broker REFUSES to fill on such a quote: a single bad print must
+    never be able to book a catastrophic P&L. Hard real-world safety guard."""
 
 
 class PaperBroker(BrokerAdapter):
@@ -32,6 +47,11 @@ class PaperBroker(BrokerAdapter):
         self.realized_pnl = 0.0
         self._oid = count(1)
         self._last_prices: dict[str, float] = {}
+        self._ref_cache: dict[str, float] = {}  # stable daily-close reference per symbol
+        # A quote farther than this multiple from the reference price is treated
+        # as a corrupt tick and refused. 5× is far beyond any real single-bar move
+        # yet trivially catches feed glitches (the EURINR 83× bad-tick blow-up).
+        self.quote_sanity_ratio = _env_float("AIFOS_QUOTE_SANITY_MAX_RATIO", 5.0)
 
     def connect(self) -> None:
         logger.info("paper broker ready: cash=%.2f %s", self.cash, settings.base_currency)
@@ -89,18 +109,60 @@ class PaperBroker(BrokerAdapter):
         return taken
 
     # --- pricing ---------------------------------------------------------
+    def _reference_price(self, symbol: str) -> float | None:
+        """A stable price to sanity-check live quotes against: the last ACCEPTED
+        quote if we have one, else the latest daily close (cached). Returns None
+        only when there is genuinely nothing to compare to (first-ever touch with
+        no history) — in which case the quote is allowed through."""
+        last = self._last_prices.get(symbol)
+        if last and last > 0:
+            return last
+        ref = self._ref_cache.get(symbol)
+        if ref and ref > 0:
+            return ref
+        try:
+            v = float(self.provider.history(symbol, "1d")["close"].iloc[-1])
+        except Exception:  # noqa: BLE001
+            return None
+        if v > 0:
+            self._ref_cache[symbol] = v
+            return v
+        return None
+
+    def _quote_is_sane(self, symbol: str, price: float, ref: float | None = None) -> bool:
+        """True if ``price`` is within the sanity band of the reference price.
+        Rejects None / non-positive / NaN, and anything beyond quote_sanity_ratio×."""
+        if price is None or price <= 0 or price != price:  # None / <=0 / NaN
+            return False
+        ref = ref if ref is not None else self._reference_price(symbol)
+        if not ref or ref <= 0:
+            return True  # nothing to compare against — cannot judge, allow
+        hi = self.quote_sanity_ratio
+        return (1.0 / hi) <= (price / ref) <= hi
+
     def get_price(self, symbol: str) -> float:
+        """Fetch the live quote, REFUSING corrupt ticks. Raises BadQuoteError when
+        the quote is absurd vs the reference — callers must not fill on it."""
         price = self.provider.latest_quote(symbol)  # short-cached live quote
+        ref = self._reference_price(symbol)
+        if not self._quote_is_sane(symbol, price, ref):
+            logger.error("BAD-TICK GUARD: refused %s quote %s (ref %s, >%.0f× band) — no fill",
+                         symbol, price, ref, self.quote_sanity_ratio)
+            raise BadQuoteError(
+                f"{symbol} quote {price} vs reference {ref} exceeds "
+                f"{self.quote_sanity_ratio}× sanity band — refusing to fill")
         self._last_prices[symbol] = price
         return price
 
     def mark_to_market(self, prices: dict[str, float] | None = None) -> None:
         for sym, pos in self.positions.items():
             px = (prices or {}).get(sym)
+            if px is not None and not self._quote_is_sane(sym, px):
+                px = None  # caller handed us a garbage price — ignore it
             if px is None:
                 try:
                     px = self.get_price(sym)  # refresh from the live (short-cached) quote
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 - bad tick / fetch failure -> last good
                     px = self._last_prices.get(sym) or pos.avg_price
             pos.market_price = px
 

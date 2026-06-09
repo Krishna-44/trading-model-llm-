@@ -118,6 +118,35 @@ def test_crypto_keeps_fractional_sizing():
     assert a.size_units != math.floor(a.size_units)  # fractional preserved
 
 
+# ── #6 kill switch must NOT freeze position exits ────────────────────────────
+def test_run_universe_manage_only_runs_exits_skips_entries():
+    """manage_only (kill switch active) must still run manage_positions (exits) but
+    open NO new positions (no tick() entries)."""
+    k = object.__new__(AIFOSKernel)
+    calls = {"manage": 0, "tick": 0}
+    k._roll_risk_day = lambda: None
+    k.tradeable_now = lambda: ["AAA", "BBB"]
+    k.manage_positions = lambda: calls.__setitem__("manage", calls["manage"] + 1)
+
+    def _tick(sym, interval, execute=True):
+        calls["tick"] += 1
+        dec = type("D", (), {"action": "HOLD", "confidence": 0.0, "executed": False})()
+        return dec, None
+
+    k.tick = _tick
+    k.snapshot_equity = lambda: 0.0
+    k.risk = type("R", (), {"marathon": False})()
+    k._save_broker_state = lambda: None
+    k._check_readiness_alert = lambda: None
+    k._cook_step = lambda: None
+
+    k.run_universe(execute=True, open_only=True, manage_only=True)
+    assert calls["manage"] == 1 and calls["tick"] == 0   # exits ran, no new entries
+
+    k.run_universe(execute=True, open_only=True, manage_only=False)
+    assert calls["manage"] == 2 and calls["tick"] == 2   # exits + entries on both symbols
+
+
 def test_synthesize_plan_short_position():
     idx = pd.date_range("2024-01-01", periods=60, freq="D")
     close = pd.Series(np.linspace(160, 100, 60), index=idx)

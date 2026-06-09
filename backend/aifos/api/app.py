@@ -138,11 +138,15 @@ async def _autonomous_loop() -> None:
     k = get_kernel()
     while True:
         await asyncio.sleep(AUTONOMOUS_INTERVAL_S)
-        if not k.autonomous or k.risk.kill_switch_active:
+        if not k.autonomous:
             continue
         try:
+            # The kill switch halts NEW entries but must NOT freeze EXIT management —
+            # open positions still need their stops/targets enforced. So when killed,
+            # run in manage_only mode (exits run, no new opens).
+            killed = k.risk.kill_switch_active
             # open_only=True -> 24/7 rotation: trade only markets that are currently open
-            await run_in_threadpool(k.run_universe, True, settings.trading_interval, True)
+            await run_in_threadpool(k.run_universe, True, settings.trading_interval, True, killed)
         except Exception:  # noqa: BLE001
             logger.exception("autonomous cycle error")
 

@@ -434,17 +434,18 @@ class AIFOSKernel:
             logger.exception("risk day rollover failed")
 
     def run_universe(self, execute: bool = True, interval: str | None = None,
-                     open_only: bool = False) -> list[dict]:
+                     open_only: bool = False, manage_only: bool = False) -> list[dict]:
         out = []
         interval = interval or settings.default_interval
         self._roll_risk_day()  # reset the daily-loss baseline at each IST day rollover
         symbols = self.tradeable_now() if open_only else settings.universe
         if execute:
             try:
-                self.manage_positions()
+                self.manage_positions()  # EXITS always run — even under the kill switch
             except Exception:  # noqa: BLE001
                 logger.exception("position management failed")
-        for sym in symbols:
+        # manage_only (kill switch active) → manage existing exits, open NO new positions
+        for sym in ([] if manage_only else symbols):
             try:
                 decision, fill = self.tick(sym, interval, execute=execute)
                 out.append({"symbol": sym, "action": decision.action,

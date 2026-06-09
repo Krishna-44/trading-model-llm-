@@ -149,12 +149,38 @@ class AIFOSKernel:
                     f"{settings.max_correlated_exposure_pct:.0%} equity cap [{names}]")
         return None
 
+    def _safety_gates(self, symbol: str, ctx) -> str | None:
+        """Hard block-only stand-aside gates checked before any order: (1) no-trade
+        event windows (NSE expiry tail, open/close auction, RBI MPC days — NSE
+        symbols only), and (2) volatility-regime gate (panic/volatile/high-VIX).
+        Both can only refuse a trade, never create one. Never raises."""
+        try:
+            from .risk.event_filter import is_blocked as event_blocked
+            from .risk.vol_gate import check as vol_check
+            is_nse = symbol.upper().endswith((".NS", ".BO")) or symbol.upper().startswith("^NSE")
+            if is_nse:
+                ev = event_blocked(symbol)
+                if ev.blocked:
+                    return f"EVENT GATE: {ev.label}"
+            vg = vol_check((ctx.extra or {}).get("regime") or {})
+            if vg.blocked:
+                return f"VOL GATE: {vg.reason}"
+        except Exception:  # noqa: BLE001 - a safety gate must never break trading
+            logger.exception("safety gate check failed")
+        return None
+
     # --- decide + (maybe) act -------------------------------------------
     def tick(self, symbol: str, interval: str = "1d", execute: bool = True):
         decision, ctx = self.analyze(symbol, interval, persist=False)
         strategy = ctx.extra.get("strategy_name", "")
         fill = None
         if execute and decision.action in ("BUY", "SELL") and not self.risk.kill_switch_active:
+            stand_aside = self._safety_gates(symbol, ctx)  # block-only: event window + vol regime
+            if stand_aside:
+                decision.reasoning += f" | {stand_aside}"
+                logger.info("safety gate held %s: %s", symbol, stand_aside)
+                self._persist_decision(decision)
+                return decision, None
             corr_block = self._correlation_gate(symbol, decision, interval)
             if corr_block:  # don't stack the same directional bet across correlated assets
                 decision.reasoning += f" | CORRELATION GATE: {corr_block}"

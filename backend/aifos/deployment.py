@@ -47,6 +47,8 @@ def live_execution_allowed(readiness_ready: bool) -> tuple[bool, list[str]]:
     stage = settings.deployment_stage if settings.deployment_stage in STAGES else "paper"
     if not settings.live_trading_enabled:
         blocking.append("master switch live_trading_enabled is OFF")
+    if settings.live_monitor_only:
+        blocking.append("monitor-only mode (live_monitor_only) is ON")
     if STAGES[stage]["order"] == 0:
         blocking.append(f"deployment_stage '{stage}' does not permit live orders")
     if settings.broker == "paper":

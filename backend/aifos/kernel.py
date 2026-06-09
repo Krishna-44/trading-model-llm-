@@ -70,6 +70,7 @@ class AIFOSKernel:
         self.autonomous = False             # background trading loop OFF by default
         self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
         self._last_trade_ts: dict[str, datetime] = {}  # per-symbol last fill time (min-hold churn guard)
+        self._risk_day: str | None = None              # IST date of the current daily-loss window
         self.option_book: dict = {}                 # paper options strategies (mirrors DB)
         self._load_options()
         self._load_broker_state()   # rehydrate paper cash + open positions across restarts
@@ -295,6 +296,31 @@ class AIFOSKernel:
             "strategy": strategy,
         }
 
+    def _synthesize_plan(self, symbol: str, pos) -> dict | None:
+        """Build a DEFAULT ATR stop/target for an open position that has no exit
+        plan (e.g. one that spanned a restart — position_plans is in-memory). Uses
+        the same ATR multiples as the RiskEngine, anchored at the position's average
+        price. Returns None if ATR/price can't be computed (then the caller skips)."""
+        try:
+            df = self.provider.history(symbol, settings.default_interval)
+            a = atr_ind(df["high"], df["low"], df["close"], 14).iloc[-1]
+            atr_val = float(a) if a == a else 0.0
+            entry = float(pos.avg_price)
+            if atr_val <= 0 or entry <= 0:
+                return None
+            long = pos.qty > 0
+            stop_dist = settings.atr_stop_mult * atr_val
+            tgt_dist = settings.atr_target_mult * atr_val
+            return {
+                "side": "long" if long else "short", "entry": entry,
+                "stop": entry - stop_dist if long else entry + stop_dist,
+                "target": entry + tgt_dist if long else entry - tgt_dist,
+                "r": stop_dist or entry * 0.01, "high_water": entry,
+                "partial_done": False, "strategy": "(recovered)",
+            }
+        except Exception:  # noqa: BLE001
+            return None
+
     def _after_exit(self, symbol: str, fill, kind: str) -> None:
         self._last_trade_ts[symbol] = datetime.now(timezone.utc)  # min-hold clock (also gates re-entry)
         acct = self.broker.get_account()
@@ -319,9 +345,20 @@ class AIFOSKernel:
         actions: list[dict] = []
         for pos in list(self.broker.get_positions()):
             sym = pos.symbol
-            plan = self.position_plans.get(sym)
-            if not plan or abs(pos.qty) < 1e-9:
+            if abs(pos.qty) < 1e-9:
                 continue
+            plan = self.position_plans.get(sym)
+            if not plan:
+                # Orphaned open position (no exit plan) — almost always one that
+                # spanned a process restart (plans are in-memory). A position with
+                # no stop is the worst capital hole; synthesize a default ATR stop
+                # so it is still protected. Better a sane default than no stop.
+                plan = self._synthesize_plan(sym, pos)
+                if not plan:
+                    continue
+                self.position_plans[sym] = plan
+                logger.warning("STOP-RECOVERY: synthesized a default ATR stop/target for "
+                               "unplanned position %s (likely spanned a restart)", sym)
             try:
                 px = self.broker.get_price(sym)
             except Exception:  # noqa: BLE001
@@ -378,10 +415,29 @@ class AIFOSKernel:
         from .sessions import session_status
         return session_status(settings.universe)
 
+    def _roll_risk_day(self) -> None:
+        """Reset the daily-loss kill-switch baseline at each IST trading-day
+        rollover. RiskEngine.start_new_day was never called, so daily_pnl
+        accumulated for the ENTIRE run and the limit stayed pinned to
+        starting_capital — making '3% daily loss' actually 'cumulative loss vs
+        initial capital'. Now the baseline rescales to live equity each new day.
+        Idempotent; safe (never raises). Marathon disables the switch anyway, so
+        this matters for the non-marathon autonomous + eventual live paths."""
+        try:
+            from datetime import timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))  # match today()'s IST
+            day = datetime.now(ist).strftime("%Y-%m-%d")
+            if getattr(self, "_risk_day", None) != day:
+                self.risk.start_new_day(float(self.broker.get_account().equity))
+                self._risk_day = day
+        except Exception:  # noqa: BLE001
+            logger.exception("risk day rollover failed")
+
     def run_universe(self, execute: bool = True, interval: str | None = None,
                      open_only: bool = False) -> list[dict]:
         out = []
         interval = interval or settings.default_interval
+        self._roll_risk_day()  # reset the daily-loss baseline at each IST day rollover
         symbols = self.tradeable_now() if open_only else settings.universe
         if execute:
             try:

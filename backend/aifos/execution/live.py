@@ -36,6 +36,20 @@ def _require_gate(broker: str) -> None:
         )
 
 
+def _require_order_gate(broker: str) -> None:
+    """Gate for REAL order PLACEMENT/CLOSE (not reads). Master switch must be ON
+    *and* monitor-only must be OFF. Every live place_order/close_position must call
+    this — reading the account (get_account/get_positions) uses _require_gate only,
+    so 'monitor-only' truly means 'connect & read, but NEVER place a real order'."""
+    _require_gate(broker)
+    if settings.live_monitor_only:
+        raise LiveTradingDisabled(
+            f"MONITOR-ONLY is ON for '{broker}' — the account is connected for reading "
+            f"only; real orders are refused. Set AIFOS_LIVE_MONITOR_ONLY=false to arm "
+            f"order placement (only after go-live readiness passes)."
+        )
+
+
 def _fema_guard(symbol: str) -> None:
     if is_offshore_forex(symbol) and not settings.allow_offshore_forex:
         raise LiveTradingDisabled(
@@ -88,7 +102,7 @@ class OANDABroker(BrokerAdapter):
         return get_provider().latest_price(symbol)
 
     def place_order(self, order: Order) -> Fill:
-        _require_gate(self.name)
+        _require_order_gate(self.name)  # master switch + monitor-only
         _fema_guard(order.symbol)
         instrument = order.symbol.replace("=X", "").replace("USD", "_USD")  # e.g. EUR_USD
         units = int(order.qty) * (1 if order.side is OrderSide.BUY else -1)
@@ -104,7 +118,7 @@ class OANDABroker(BrokerAdapter):
                     ts=datetime.now(timezone.utc).isoformat())
 
     def close_position(self, symbol: str):
-        _require_gate(self.name)
+        _require_order_gate(self.name)  # master switch + monitor-only
         raise NotImplementedError("wire to /positions/{instrument}/close when arming live")
 
 
@@ -142,6 +156,7 @@ class ZerodhaBroker(BrokerAdapter):
         return get_provider().latest_price(symbol)
 
     def place_order(self, order: Order) -> Fill:
+        _require_order_gate(self.name)  # master switch + monitor-only (before any SDK call)
         k = self._kite()
         tsym = order.symbol.replace(".NS", "")
         oid = k.place_order(
@@ -217,12 +232,7 @@ class AngelOneBroker(BrokerAdapter):
 
     def _orders_allowed(self) -> None:
         """The order-side gate (reading the account never calls this)."""
-        _require_gate(self.name)  # live_trading_enabled master switch
-        if settings.live_monitor_only:
-            raise LiveTradingDisabled(
-                f"{self.name}: MONITOR-ONLY is ON — the account is connected for monitoring "
-                f"only; real orders are disabled. Set AIFOS_LIVE_MONITOR_ONLY=false to allow "
-                f"trading (do this only after go-live readiness passes).")
+        _require_order_gate(self.name)  # master switch + monitor-only (shared with OANDA/Zerodha)
 
     def _client(self):
         s = settings

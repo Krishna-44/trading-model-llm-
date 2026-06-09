@@ -69,6 +69,7 @@ class AIFOSKernel:
             logger.exception("broker '%s' connect failed (will retry on demand)", self.broker.name)
         self.autonomous = False             # background trading loop OFF by default
         self.position_plans: dict[str, dict] = {}  # per-symbol exit plan (stop/target/trail)
+        self._last_trade_ts: dict[str, datetime] = {}  # per-symbol last fill time (min-hold churn guard)
         self.option_book: dict = {}                 # paper options strategies (mirrors DB)
         self._load_options()
         self._load_broker_state()   # rehydrate paper cash + open positions across restarts
@@ -171,6 +172,28 @@ class AIFOSKernel:
         except Exception:  # noqa: BLE001 - a gate must never break the cycle
             return None
 
+    def _min_hold_gate(self, symbol: str, decision) -> str | None:
+        """Block a NEW entry on a symbol traded within `min_hold_seconds`. Kills the
+        flip-flop churn that bled commissions (e.g. EURINR opened+closed ~40× in 3h).
+        Gates ENTRIES only — stop/target/trailing exits in manage_positions are
+        untouched, so it can never trap a losing position. Block-only; never raises."""
+        if decision.side not in ("long", "short"):
+            return None
+        hold = int(getattr(settings, "min_hold_seconds", 0) or 0)
+        if hold <= 0:
+            return None
+        last = self._last_trade_ts.get(symbol)
+        if last is None:
+            return None
+        try:
+            elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+        except Exception:  # noqa: BLE001
+            return None
+        if elapsed < hold:
+            return (f"traded {int(elapsed)}s ago (< {hold}s min-hold) — cooling down to "
+                    f"avoid flip-flop churn")
+        return None
+
     def _safety_gates(self, symbol: str, ctx) -> str | None:
         """Hard block-only stand-aside gates checked before any order: (1) no-trade
         event windows (NSE expiry tail, open/close auction, RBI MPC days — NSE
@@ -215,6 +238,12 @@ class AIFOSKernel:
                 logger.info("portfolio-heat gate held %s: %s", symbol, heat_block)
                 self._persist_decision(decision)
                 return decision, None
+            hold_block = self._min_hold_gate(symbol, decision)
+            if hold_block:  # cooldown — don't churn the same symbol in/out every cycle
+                decision.reasoning += f" | MIN-HOLD GATE: {hold_block}"
+                logger.info("min-hold gate held %s: %s", symbol, hold_block)
+                self._persist_decision(decision)
+                return decision, None
             if self.broker.is_live:
                 ds = self.deployment()  # staged-deployment safety gate for REAL orders
                 if not ds["live_permitted"]:
@@ -232,6 +261,7 @@ class AIFOSKernel:
                 logger.error("refused to fill %s on a corrupt quote: %s", symbol, exc)
             if fill:
                 decision.executed = True
+                self._last_trade_ts[symbol] = datetime.now(timezone.utc)  # min-hold clock
                 acct = self.broker.get_account()
                 self.risk.register_fill(fill.realized_pnl, acct.equity)
                 self.repo.save_trade(
@@ -266,6 +296,7 @@ class AIFOSKernel:
         }
 
     def _after_exit(self, symbol: str, fill, kind: str) -> None:
+        self._last_trade_ts[symbol] = datetime.now(timezone.utc)  # min-hold clock (also gates re-entry)
         acct = self.broker.get_account()
         self.risk.register_fill(fill.realized_pnl, acct.equity)
         self.repo.save_trade(
@@ -374,8 +405,12 @@ class AIFOSKernel:
                 if self.broker.get_account().equity <= settings.starting_capital * 0.01:
                     self.risk.marathon = False
                     self.autonomous = False
+                    self._set_marathon_halted(True)  # PERSIST the halt — survive restart re-arm
                     self.bus.publish("control", {"event": "marathon_exhausted"})
-                    self.notifier.send("Paper marathon ended", "Capital exhausted (equity ~0).", "critical")
+                    self.notifier.send("Paper marathon ended",
+                                       "Capital exhausted (equity ~0). Halt persisted — will NOT "
+                                       "re-arm on restart until you explicitly start or reset.",
+                                       "critical")
             except Exception:  # noqa: BLE001
                 pass
         self._save_broker_state()  # persist the book each cycle so positions survive a restart
@@ -1076,6 +1111,30 @@ class AIFOSKernel:
         self.autonomous = on and not self.risk.kill_switch_active
         self.bus.publish("control", {"event": "autonomous", "on": self.autonomous})
 
+    def _marathon_halt_flag(self) -> Path:
+        return Path(settings.data_cache_dir) / "marathon_halted.flag"
+
+    def marathon_halted(self) -> bool:
+        """True if the marathon was stopped by run-to-ruin and has NOT been
+        explicitly restarted/reset since. PERSISTS across restarts so a KeepAlive
+        auto-restart + MARATHON_ON_START can't re-arm (zombie-trade) a wiped book —
+        the exact failure mode behind the -4.14M blow-up's compounding."""
+        try:
+            return self._marathon_halt_flag().exists()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _set_marathon_halted(self, on: bool) -> None:
+        try:
+            flag = self._marathon_halt_flag()
+            if on:
+                flag.parent.mkdir(parents=True, exist_ok=True)
+                flag.write_text("halted: run-to-ruin (clear by explicit start or reset)\n")
+            elif flag.exists():
+                flag.unlink()
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to update marathon halt flag")
+
     def start_paper_marathon(self, *, light: bool = False) -> dict:
         """PAPER-only: run the autonomous loop CONTINUOUSLY with no daily-loss
         auto-stop, compounding realized P&L into position sizing, until stopped or
@@ -1087,6 +1146,7 @@ class AIFOSKernel:
         prevents uvicorn from serving at all)."""
         if self.broker.is_live:
             raise RuntimeError("marathon is paper-only; refusing on a LIVE account")
+        self._set_marathon_halted(False)  # explicit start clears any prior ruin-halt
         self.risk.reset_kill_switch()
         self.risk.marathon = True
         self.autonomous = True
@@ -1127,6 +1187,7 @@ class AIFOSKernel:
         if hasattr(self.broker, "reset"):
             self.broker.reset(settings.starting_capital)
         self.risk.reset_kill_switch()
+        self._set_marathon_halted(False)  # fresh capital — prior ruin-halt no longer applies
         self.autonomous = False
         eq = self.snapshot_equity()  # seed the inception baseline point
         self.bus.publish("control", {"event": "track_record_reset", "equity": eq})

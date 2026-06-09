@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     default_interval: str = "1d"
     autonomous_interval_s: int = 300  # forward-test cadence: run a cycle + snapshot equity every N seconds
     trading_interval: str = "15m"     # bar interval the autonomous "Start Trading" loop trades (intraday)
+    min_hold_seconds: int = 900       # min cooldown before re-trading a symbol — kills flip-flop churn
     autonomous_on_start: bool = False # service mode: arm the autonomous loop at boot (no manual toggle)
     marathon_on_start: bool = False   # paper service: start continuous run-to-ruin marathon at boot
     log_file: str = ""                # if set, also write a size-rotated log to this path

@@ -114,6 +114,38 @@ Defaults to `http://pi5.local:5678` — override with `AIFOS_BRAIN_URL`.
 - `backend/tests/test_multi_timeframe.py` — all-bullish → bullish/high-conf, mixed → neutral/low-conf
 - `backend/tests/test_sector_rotation.py` — top-rank → bullish, bottom-rank → bearish, unknown symbol → neutral
 
+## REVIEW VERDICT (2026-06-09) — multi_timeframe + sector_rotation stay OFF
+
+Reviewed both committee agents before wiring (rule: only enable if they CLEARLY
+help the marathon basket `[^NSEI, USDINR=X, BTC-USD, RELIANCE.NS]`). Evidence via
+`scripts/review_committee_agents.py`. **Decision: keep BOTH unwired for now.**
+
+- **SectorRotation → OFF.** It can only vote non-neutral on symbols in
+  `SYMBOL_SECTOR` (NSE equities). Of the basket, **only RELIANCE.NS is mapped
+  (1/4)** — it returns confidence-0 neutral on ^NSEI / USDINR / BTC by
+  construction, so it cannot move the committee on 3/4 of what the marathon
+  trades. It is a *broad-NSE-equity-universe* tool. **Wire it only if/when the
+  universe expands to many mapped NSE names** (then it adds real rotation
+  context). Its math is sound and lookahead-free; this is a scope mismatch, not a
+  quality problem.
+
+- **MultiTimeframe → OFF.** Its daily directional signal DOES backtest with trend
+  edge on the basket (avg +19.5%, positive 3/4, MC-robust 2/4, cost-survive 2/4 —
+  but BTC-concentrated, same shape as the existing trend strategies). That's the
+  problem: the backtestable part is **redundant** with already-enabled trend logic
+  (`ema_trend`, `ema_trend_fast`, the committee's trend agents), so wiring it adds
+  a *correlated* trend vote → over-confidence/double-counting. Its genuinely novel
+  value — refusing trades when 15m/1h/1d DISAGREE — is **not backtestable** (yfinance
+  intraday history is ~60 days), so there's no evidence it *clearly* helps. **Wire
+  it only with a reliable intraday data feed** to validate the agreement-filter, or
+  as an explicit confidence-DAMPENER (veto-only, no bullish vote) to avoid
+  double-counting. Not enabling a vote-changer on un-validated incremental benefit.
+
+Both remain registered/importable and fully tested (`test_multi_timeframe.py`,
+`test_sector_rotation.py`) — this is a deliberate keep-OFF with evidence, not an
+oversight. Re-evaluate when the universe broadens (sector) or an intraday feed
+lands (mtf).
+
 ## What's intentionally NOT changed
 
 - The existing `regime.py` weight multiplier remains the soft layer; the new

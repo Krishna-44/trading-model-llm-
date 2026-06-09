@@ -149,6 +149,28 @@ class AIFOSKernel:
                     f"{settings.max_correlated_exposure_pct:.0%} equity cap [{names}]")
         return None
 
+    def _directional_balance_gate(self, decision) -> str | None:
+        """Cap the WHOLE book's net long-vs-short imbalance. The correlation gate
+        blocks stacking the same bet across CORRELATED assets; this is broader —
+        it refuses a new open that would push the book past a hard net-directional
+        cap (e.g. 100% short), which one market-wide move would wipe out. Block-
+        only; always allows trades that REDUCE imbalance. Never raises."""
+        sizing = decision.sizing or {}
+        cand_notional = float(sizing.get("size_value") or 0.0)
+        if cand_notional <= 0 or decision.side not in ("long", "short"):
+            return None
+        try:
+            from .risk.portfolio_heat import check as heat_check
+            pf = self.portfolio()
+            poss = [{"dir": 1 if p["qty"] > 0 else -1,
+                     "notional": abs(p["qty"]) * float(p.get("avg_price") or 0.0)}
+                    for p in pf.get("positions", []) if p.get("qty")]
+            equity = float(pf.get("account", {}).get("equity") or settings.starting_capital)
+            res = heat_check(decision.side, cand_notional, poss, equity)
+            return res.reason if res.blocked else None
+        except Exception:  # noqa: BLE001 - a gate must never break the cycle
+            return None
+
     def _safety_gates(self, symbol: str, ctx) -> str | None:
         """Hard block-only stand-aside gates checked before any order: (1) no-trade
         event windows (NSE expiry tail, open/close auction, RBI MPC days — NSE
@@ -185,6 +207,12 @@ class AIFOSKernel:
             if corr_block:  # don't stack the same directional bet across correlated assets
                 decision.reasoning += f" | CORRELATION GATE: {corr_block}"
                 logger.info("correlation gate held %s: %s", symbol, corr_block)
+                self._persist_decision(decision)
+                return decision, None
+            heat_block = self._directional_balance_gate(decision)
+            if heat_block:  # don't let the whole book go one-sided (e.g. 100% short)
+                decision.reasoning += f" | PORTFOLIO HEAT GATE: {heat_block}"
+                logger.info("portfolio-heat gate held %s: %s", symbol, heat_block)
                 self._persist_decision(decision)
                 return decision, None
             if self.broker.is_live:

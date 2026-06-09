@@ -5,9 +5,7 @@ import { ChartPanel, useAnalyze } from "@/components/aifos/Analysis";
 import { NewsIntel } from "@/components/aifos/News";
 import { HoldingsPanel } from "@/components/aifos/Holdings";
 import { BrokerPanel } from "@/components/aifos/Broker";
-import { OptionsLab } from "@/components/aifos/OptionsLab";
 import { StrategyMarket } from "@/components/aifos/StrategyMarket";
-import { VideoStrategies } from "@/components/aifos/VideoStrategies";
 import { PaperTrading } from "@/components/aifos/PaperTrading";
 import { Robustness } from "@/components/aifos/Robustness";
 import { Cooking } from "@/components/aifos/Cooking";
@@ -17,7 +15,6 @@ import { CandleRead } from "@/components/aifos/CandleRead";
 import { StatusStrip } from "@/components/aifos/StatusStrip";
 import { SessionStrip } from "@/components/aifos/SessionStrip";
 import { VisionDock } from "@/components/aifos/Vision";
-import { api } from "@/lib/aifos/api";
 import { AlertTriangle } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -41,9 +38,6 @@ function Dashboard() {
   const [interval, setInterval] = useState("1d");
   const { analyzing, run } = useAnalyze();
 
-  const onBacktest = async () => { try { await api(`/api/backtest`, { method: "POST", body: JSON.stringify({ symbol, interval }) }); } catch {} };
-  const onCycle = async () => { try { await api(`/api/control/cycle`, { method: "POST", body: JSON.stringify({ symbol, interval }) }); } catch {} };
-
   return (
     <div className="min-h-screen">
       <Header symbol={symbol} />
@@ -51,8 +45,6 @@ function Dashboard() {
         symbol={symbol} setSymbol={setSymbol}
         interval={interval} setInterval={setInterval}
         onAnalyze={() => run(symbol, interval)}
-        onBacktest={onBacktest}
-        onCycle={onCycle}
         analyzing={analyzing}
       />
       <NewsTicker />
@@ -81,9 +73,6 @@ function Dashboard() {
 
         <div className="col-span-12"><TradeLog /></div>
 
-        {/* video → strategy queue (n8n-wired) feeding the marketplace inbox */}
-        <div className="col-span-12"><VideoStrategies /></div>
-
         {/* strategy marketplace — backtested + ranked, enable/disable */}
         <div className="col-span-12 lg:col-span-7"><StrategyMarket symbol={symbol} /></div>
 
@@ -92,18 +81,12 @@ function Dashboard() {
 
         {/* strategies cooking — continuous background discovery on :8001 */}
         <div className="col-span-12"><Cooking /></div>
-
-        {/* paper options lab — practise strategies with model-priced virtual money */}
-        <div className="col-span-12"><OptionsLab symbol={symbol} /></div>
       </main>
 
-      <footer className="px-4 md:px-6 py-6 border-t border-border bg-background/60 backdrop-blur-md mt-4 mb-24">
-        <div className="flex items-start gap-3 max-w-4xl mx-auto text-[11px] text-muted-foreground">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <p>
-            <span className="text-foreground/90 font-semibold">AIFOS reasons in probabilities and does not guarantee profit. Paper-first; live execution is gated.</span>{" "}
-            Default action is HOLD. Past performance ≠ future results. Nothing on this screen is investment advice.
-          </p>
+      <footer className="px-4 md:px-6 py-4 border-t border-border bg-background/60 backdrop-blur-md mt-4 mb-24">
+        <div className="flex items-center gap-2 max-w-4xl mx-auto text-[11px] text-muted-foreground">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>Paper-first · live execution gated · not investment advice.</span>
         </div>
       </footer>
 

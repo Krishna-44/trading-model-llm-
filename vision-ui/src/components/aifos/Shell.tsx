@@ -93,10 +93,10 @@ function StartTradingButton() {
   );
 }
 
-export function ControlBar({ symbol, setSymbol, interval, setInterval, onAnalyze, onBacktest, onCycle, analyzing }: {
+export function ControlBar({ symbol, setSymbol, interval, setInterval, onAnalyze, analyzing }: {
   symbol: string; setSymbol: (s: string) => void;
   interval: string; setInterval: (s: string) => void;
-  onAnalyze: () => void; onBacktest: () => void; onCycle: () => void; analyzing?: boolean;
+  onAnalyze: () => void; analyzing?: boolean;
 }) {
   const { data: universe } = useApi<{ universe?: Array<{ symbol: string; asset_class: string }>; symbols?: any[] }>("/api/market/universe");
   const list = (universe as any)?.universe || (universe as any)?.symbols || [];
@@ -128,8 +128,6 @@ export function ControlBar({ symbol, setSymbol, interval, setInterval, onAnalyze
         <button onClick={onAnalyze} disabled={analyzing} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-[color:var(--cyan)] to-[color:var(--indigo)] text-background hover:opacity-90 transition disabled:opacity-60">
           {analyzing ? "Analyzing…" : "Analyze"}
         </button>
-        <button onClick={onBacktest} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-border hover:bg-secondary/60 transition">Backtest</button>
-        <button onClick={onCycle} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-border hover:bg-secondary/60 transition">Run Cycle (paper)</button>
       </div>
     </div>
   );

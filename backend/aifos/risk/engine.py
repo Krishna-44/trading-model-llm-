@@ -162,6 +162,19 @@ class RiskEngine:
             notional = units * entry
             a.reasons.append("size reduced for liquidity (<=2% of ADV)")
 
+        # whole-share venues: NSE cash equity trades in WHOLE shares, and every live
+        # adapter int()-truncates qty. The paper record must size the same way or it
+        # won't match what would actually execute (a 1.9-share intent fills as 1
+        # live, a 0.7-share intent can't be placed at all). Floor equities to whole
+        # shares and reject sub-1 as untradeable. Forex/crypto/index stay fractional
+        # (genuinely divisible on their venues).
+        if asset_class == "equity":
+            units = float(int(units))
+            notional = units * entry
+            if units < 1:
+                a.rejections.append("position rounds to <1 whole share — too small to trade live")
+                return a
+
         if units <= 0 or notional <= 0:
             a.rejections.append("computed size is zero after caps")
             return a

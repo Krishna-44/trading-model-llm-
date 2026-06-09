@@ -87,6 +87,37 @@ def test_synthesize_plan_builds_default_stop():
     assert plan["strategy"] == "(recovered)"
 
 
+import math
+
+
+# ── #4 equity sizes in WHOLE shares so paper matches live execution ──────────
+def test_equity_sizing_floors_to_whole_shares():
+    a = RiskEngine().assess(side="long", entry=100.0, atr=2.0, confidence=0.9,
+                            equity=1_000_000, open_positions=0,
+                            current_exposure_value=0, asset_class="equity")
+    assert a.approved
+    assert a.size_units == math.floor(a.size_units) and a.size_units >= 1  # whole shares
+
+
+def test_equity_rejects_sub_one_share():
+    # a very high-priced share vs small equity -> sizes to <1 share -> refused
+    a = RiskEngine().assess(side="long", entry=5_000_000.0, atr=100_000.0, confidence=0.9,
+                            equity=100_000, open_positions=0,
+                            current_exposure_value=0, asset_class="equity")
+    assert not a.approved
+    assert any("whole share" in r for r in a.rejections)
+
+
+def test_crypto_keeps_fractional_sizing():
+    # BTC-like price: the position cap forces a sub-1 fractional size, which is
+    # legitimate on a crypto venue and must NOT be floored away.
+    a = RiskEngine().assess(side="long", entry=63_000.0, atr=1_500.0, confidence=0.9,
+                            equity=1_000_000, open_positions=0,
+                            current_exposure_value=0, asset_class="crypto")
+    assert a.approved
+    assert a.size_units != math.floor(a.size_units)  # fractional preserved
+
+
 def test_synthesize_plan_short_position():
     idx = pd.date_range("2024-01-01", periods=60, freq="D")
     close = pd.Series(np.linspace(160, 100, 60), index=idx)

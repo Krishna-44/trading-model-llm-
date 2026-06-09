@@ -22,6 +22,7 @@ from .backtest import monte_carlo, run_backtest
 from .config import settings
 from .indicators import adx, ema, macd, rsi, supertrend, vwap
 from .strategies.base import Strategy
+from .strategies.web_sourced import ConnorsDouble7Strategy, ConnorsRsi2Strategy
 
 logger = logging.getLogger("aifos.cooking")
 
@@ -137,6 +138,13 @@ CANDIDATES: list[tuple[str, str, type, dict]] = [
                                 {"short": 10, "mid": 30, "long": 100, "rsi_long": 55, "rsi_short": 45}),
     ("hybrid_vwap_ema(20,50)", "hybrid_vwap_ema", VwapEmaHybridStrategy, {"vwap_window": 20, "ema_window": 50}),
     ("hybrid_vwap_ema(14,30)", "hybrid_vwap_ema", VwapEmaHybridStrategy, {"vwap_window": 14, "ema_window": 30}),
+    # Web-researched Connors mean-reversion — tune thresholds/window in the loop
+    ("rsi2_connors(5,95)",     "rsi2_connors",    ConnorsRsi2Strategy,    {"low": 5, "high": 95}),
+    ("rsi2_connors(10,90)",    "rsi2_connors",    ConnorsRsi2Strategy,    {"low": 10, "high": 90}),
+    ("rsi2_connors(3,97)",     "rsi2_connors",    ConnorsRsi2Strategy,    {"low": 3, "high": 97}),
+    ("double7_connors(7)",     "double7_connors", ConnorsDouble7Strategy, {"window": 7}),
+    ("double7_connors(5)",     "double7_connors", ConnorsDouble7Strategy, {"window": 5}),
+    ("double7_connors(10)",    "double7_connors", ConnorsDouble7Strategy, {"window": 10}),
 ]
 
 

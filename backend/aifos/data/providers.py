@@ -48,6 +48,12 @@ class MarketDataProvider(abc.ABC):
         """Live-ish last price for mark-to-market; subclasses may use a faster source."""
         return self.latest_price(symbol)
 
+    def last_source(self, symbol: str) -> str:
+        """Source of the most-recent price for `symbol`: 'yfinance' / 'synthetic' /
+        'unknown'. Live execution uses this to REFUSE recording a fabricated fill
+        price when the feed has degraded to the synthetic fallback."""
+        return "unknown"
+
 
 class YFinanceProvider(MarketDataProvider):
     name = "yfinance"
@@ -56,8 +62,12 @@ class YFinanceProvider(MarketDataProvider):
         self.cache_ttl_s = cache_ttl_s
         self._mem: dict[str, tuple[float, pd.DataFrame]] = {}
         self._quote_cache: dict[str, tuple[float, float]] = {}
+        self._last_source: dict[str, str] = {}  # symbol -> source of its last price
         self.quote_ttl_s = 60  # live-quote freshness for real-time mark-to-market
         os.makedirs(settings.data_cache_dir, exist_ok=True)
+
+    def last_source(self, symbol: str) -> str:
+        return self._last_source.get(symbol, "unknown")
 
     # --- caching ---------------------------------------------------------
     def _cache_path(self, key: str) -> str:
@@ -91,12 +101,14 @@ class YFinanceProvider(MarketDataProvider):
         key = f"{symbol}:{interval}:{period}"
         cached = self._read_cache(key)
         if cached is not None:
+            self._last_source[symbol] = cached.attrs.get("source", "yfinance")
             return cached
 
         df = self._fetch_yf(symbol, interval, period)
         if df is None or df.empty:
             logger.warning("yfinance empty for %s; using synthetic fallback", symbol)
             df = _synthetic_series(symbol, interval)
+        self._last_source[symbol] = df.attrs.get("source", "unknown")
         self._write_cache(key, df)
         return df
 
@@ -112,6 +124,7 @@ class YFinanceProvider(MarketDataProvider):
             if df is not None and not df.empty:
                 px = float(df["close"].iloc[-1])
                 self._quote_cache[symbol] = (time.time(), px)
+                self._last_source[symbol] = "yfinance"
                 return px
         except Exception:  # noqa: BLE001
             pass

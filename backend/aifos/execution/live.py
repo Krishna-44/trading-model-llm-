@@ -50,6 +50,20 @@ def _require_order_gate(broker: str) -> None:
         )
 
 
+def _resolve_live_fill_price(broker_price: float, quote: float,
+                             quote_synthetic: bool) -> tuple[float, str]:
+    """Decide the price to RECORD for a live fill. Prefer the broker's own average
+    fill price (ground truth from the order book). Fall back to a market quote ONLY
+    if it is real — NEVER record a synthetic/fabricated price as an executed fill,
+    which silently corrupts live P&L. When neither is trustworthy, return
+    price-unverified so the integrity gap is visible and can be reconciled."""
+    if broker_price and broker_price > 0:
+        return float(broker_price), "filled"
+    if quote and quote > 0 and not quote_synthetic:
+        return float(quote), "filled"
+    return 0.0, "price-unverified"
+
+
 def _fema_guard(symbol: str) -> None:
     if is_offshore_forex(symbol) and not settings.allow_offshore_forex:
         raise LiveTradingDisabled(
@@ -165,10 +179,30 @@ class ZerodhaBroker(BrokerAdapter):
                               else k.TRANSACTION_TYPE_SELL),
             quantity=int(order.qty), product=k.PRODUCT_MIS, order_type=k.ORDER_TYPE_MARKET,
         )
+        # Record Kite's actual average fill price, not a (possibly synthetic) yfinance quote.
+        prov = get_provider()
+        broker_px = self._avg_price_from_kite(k, oid)
+        quote = prov.latest_quote(order.symbol)
+        price, status = _resolve_live_fill_price(
+            broker_px, quote, prov.last_source(order.symbol) == "synthetic")
+        if status == "price-unverified":
+            logger.critical("LIVE FILL %s: no broker avg price and feed is synthetic — "
+                            "recording price-unverified; RECONCILE manually", order.symbol)
         from datetime import datetime, timezone
         return Fill(order_id=str(oid), symbol=order.symbol, side=order.side,
-                    qty=order.qty, price=self.get_price(order.symbol),
-                    ts=datetime.now(timezone.utc).isoformat(), status="submitted")
+                    qty=order.qty, price=price,
+                    ts=datetime.now(timezone.utc).isoformat(), status=status)
+
+    @staticmethod
+    def _avg_price_from_kite(k, oid) -> float:
+        """The order's executed average price from Kite's order list (ground truth)."""
+        try:
+            for o in (k.orders() or []):
+                if str(o.get("order_id")) == str(oid):
+                    return float(o.get("average_price") or 0)
+        except Exception:  # noqa: BLE001 - transient read; fall back
+            pass
+        return 0.0
 
     def close_position(self, symbol: str):
         raise NotImplementedError("close via opposite MIS order when arming live")
@@ -351,10 +385,32 @@ class AngelOneBroker(BrokerAdapter):
         oid = sm.placeOrder(params)
         if isinstance(oid, dict):
             oid = oid.get("data", {}).get("orderid", oid)
+        # Record the BROKER's actual average fill price, not a yfinance quote (which
+        # can silently be synthetic and corrupt live P&L). Fall back to a real quote
+        # only; flag price-unverified if neither is trustworthy.
+        prov = get_provider()
+        broker_px = self._avg_price_from_book(sm, oid)
+        quote = prov.latest_quote(order.symbol)
+        price, status = _resolve_live_fill_price(
+            broker_px, quote, prov.last_source(order.symbol) == "synthetic")
+        if status == "price-unverified":
+            logger.critical("LIVE FILL %s: no broker avg price and feed is synthetic — "
+                            "recording price-unverified; RECONCILE manually", order.symbol)
         from datetime import datetime, timezone
         return Fill(order_id=str(oid), symbol=order.symbol, side=order.side, qty=order.qty,
-                    price=self.get_price(order.symbol),
-                    ts=datetime.now(timezone.utc).isoformat(), status="submitted")
+                    price=price, ts=datetime.now(timezone.utc).isoformat(), status=status)
+
+    @staticmethod
+    def _avg_price_from_book(sm, oid) -> float:
+        """The order's executed average price from AngelOne's order book (ground
+        truth). 0.0 if not yet available — caller falls back to a real quote."""
+        try:
+            for row in (sm.orderBook() or {}).get("data") or []:
+                if str(row.get("orderid")) == str(oid):
+                    return float(row.get("averageprice") or 0)
+        except Exception:  # noqa: BLE001 - transient book read; fall back
+            pass
+        return 0.0
 
     def close_position(self, symbol: str):
         self._orders_allowed()

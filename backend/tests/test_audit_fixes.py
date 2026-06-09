@@ -118,6 +118,39 @@ def test_crypto_keeps_fractional_sizing():
     assert a.size_units != math.floor(a.size_units)  # fractional preserved
 
 
+# ── #5 live fills record the broker price, never a synthetic one ─────────────
+def test_live_fill_prefers_broker_price():
+    from aifos.execution.live import _resolve_live_fill_price
+    assert _resolve_live_fill_price(101.5, 100.0, False) == (101.5, "filled")
+
+
+def test_live_fill_uses_real_quote_when_no_broker_price():
+    from aifos.execution.live import _resolve_live_fill_price
+    assert _resolve_live_fill_price(0.0, 100.0, False) == (100.0, "filled")
+
+
+def test_live_fill_refuses_synthetic_quote():
+    from aifos.execution.live import _resolve_live_fill_price
+    price, status = _resolve_live_fill_price(0.0, 100.0, True)  # feed is synthetic
+    assert price == 0.0 and status == "price-unverified"  # never fabricate a fill price
+
+
+def test_live_fill_unverified_when_no_price():
+    from aifos.execution.live import _resolve_live_fill_price
+    assert _resolve_live_fill_price(0.0, 0.0, False) == (0.0, "price-unverified")
+
+
+def test_provider_tracks_synthetic_source(monkeypatch):
+    from aifos.data.providers import YFinanceProvider
+    p = YFinanceProvider()
+    assert p.last_source("NEVERSEEN_XYZ") == "unknown"
+    monkeypatch.setattr(p, "_fetch_yf", lambda *a, **k: None)   # force feed failure
+    monkeypatch.setattr(p, "_read_cache", lambda key: None)
+    monkeypatch.setattr(p, "_write_cache", lambda key, df: None)
+    p.history("FAKE_SYNTH_SYM", "1d")
+    assert p.last_source("FAKE_SYNTH_SYM") == "synthetic"
+
+
 # ── #6 kill switch must NOT freeze position exits ────────────────────────────
 def test_run_universe_manage_only_runs_exits_skips_entries():
     """manage_only (kill switch active) must still run manage_positions (exits) but

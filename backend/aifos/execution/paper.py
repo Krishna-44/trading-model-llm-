@@ -48,10 +48,13 @@ class PaperBroker(BrokerAdapter):
         self._oid = count(1)
         self._last_prices: dict[str, float] = {}
         self._ref_cache: dict[str, float] = {}  # stable daily-close reference per symbol
-        # A quote farther than this multiple from the reference price is treated
-        # as a corrupt tick and refused. 5× is far beyond any real single-bar move
-        # yet trivially catches feed glitches (the EURINR 83× bad-tick blow-up).
-        self.quote_sanity_ratio = _env_float("AIFOS_QUOTE_SANITY_MAX_RATIO", 5.0)
+        # A quote farther than this multiple from the reference is a corrupt tick and
+        # is refused. TIGHTENED 5.0→2.0: 5× caught the EURINR 83× blow-up but let a
+        # subtler ETH-USD 2.30× glitch through ($3818 vs ~$1659) that booked a fake
+        # +52,757 paper profit. No liquid instrument (BTC/ETH/NSE-circuit/FX) moves
+        # >100% in a single bar, so 2.0× rejects glitches while never blocking a real
+        # move. Env-overridable for assets that genuinely gap harder.
+        self.quote_sanity_ratio = _env_float("AIFOS_QUOTE_SANITY_MAX_RATIO", 2.0)
 
     def connect(self) -> None:
         logger.info("paper broker ready: cash=%.2f %s", self.cash, settings.base_currency)

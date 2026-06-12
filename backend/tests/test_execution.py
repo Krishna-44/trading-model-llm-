@@ -82,14 +82,27 @@ def test_bad_tick_guard_refuses_corrupt_quote():
 
 
 def test_bad_tick_guard_allows_legitimate_move_within_band():
-    """A real move within the sanity band (here 4× < 5×) still fills normally —
+    """A real move within the sanity band (here 1.8× < 2.0×) still fills normally —
     the guard rejects garbage, not volatility."""
     b = PaperBroker(provider=FakeProvider(100), starting_cash=1_000_000,
                     commission_bps=0, slippage_bps=0)
     b.place_order(Order("X", OrderSide.BUY, 10))
-    b.provider.px = 400  # 4× — large but within the 5× band
+    b.provider.px = 180  # 1.8× — large but within the 2.0× band
     fill = b.place_order(Order("X", OrderSide.SELL, 10))
-    assert round(fill.realized_pnl, 2) == 3000.0  # (400-100)*10
+    assert round(fill.realized_pnl, 2) == 800.0  # (180-100)*10
+
+
+def test_bad_tick_guard_refuses_moderate_eth_glitch():
+    """Regression for the ETH-USD $3818-vs-$1659 (2.30×) glitch that slipped the
+    old 5× band and booked a fake +52,757. The tightened 2.0× band must refuse it."""
+    b = PaperBroker(provider=FakeProvider(1659), starting_cash=1_000_000,
+                    commission_bps=0, slippage_bps=0)
+    b.place_order(Order("ETH-USD", OrderSide.BUY, 24))   # open long at ~1659 (seeds ref)
+    cash_before = b.cash
+    b.provider.px = 3818.12                               # corrupt tick (2.30× real)
+    with pytest.raises(BadQuoteError):
+        b.place_order(Order("ETH-USD", OrderSide.SELL, 24))  # would have booked the fake profit
+    assert b.cash == cash_before
 
 
 def test_bad_tick_guard_does_not_distort_marking():

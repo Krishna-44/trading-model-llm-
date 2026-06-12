@@ -294,6 +294,7 @@ class AIFOSKernel:
             "side": decision.side, "entry": entry, "stop": stop, "target": target,
             "r": abs(entry - stop) or entry * 0.01, "high_water": entry, "partial_done": False,
             "strategy": strategy,
+            "situation": list(decision.situation_features or []),  # for outcome-memory writeback
         }
 
     def _synthesize_plan(self, symbol: str, pos) -> dict | None:
@@ -337,6 +338,19 @@ class AIFOSKernel:
                            f"{fill.side.value} {fill.qty:.4f} @ {fill.price:.2f} "
                            f"(pnl {fill.realized_pnl:,.2f})", "info")
         self.evaluator.resolve(symbol, fill.realized_pnl)  # close the learn-from-P&L loop
+        # outcome-memory writeback (TradingAgents-style): store this setup's market-state
+        # vector + how it resolved, so a future SIMILAR setup gets confidence-haircut by
+        # its historical hit-rate. Only on a full close (not the +1R partial) to avoid
+        # double-counting the same setup. Never breaks an exit.
+        try:
+            feats = (self.position_plans.get(symbol) or {}).get("situation") or []
+            if feats and kind != "partial_1R" and abs(fill.realized_pnl) > 1e-9:
+                self.memory.add(list(feats), {
+                    "outcome": "win" if fill.realized_pnl > 0 else "loss",
+                    "symbol": symbol, "pnl": round(float(fill.realized_pnl), 2),
+                })
+        except Exception:  # noqa: BLE001
+            logger.exception("market-memory writeback failed for %s", symbol)
 
     def manage_positions(self) -> list[dict]:
         """Adaptive exits on open positions each cycle: hard stop/target, partial

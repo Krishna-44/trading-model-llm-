@@ -58,6 +58,7 @@ class TradeDecision:
     executed: bool = False
     llm_summary: str = ""
     source: str = "unknown"
+    situation_features: list = field(default_factory=list)  # market-state vector for outcome-memory writeback
 
     def to_dict(self) -> dict:
         return {

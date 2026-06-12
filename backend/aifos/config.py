@@ -63,6 +63,8 @@ class Settings(BaseSettings):
 
     # --- Risk gates (the system's spine) ---
     confidence_threshold: float = 0.62      # below this -> HOLD, no exceptions
+    consensus_dead_band: float = 0.20       # |net consensus| below this -> HOLD (tuned 0.10->0.20: OOS loss-cutting, +0.15 Sharpe)
+    memory_min_neighbors: int = 6           # min similar past setups before the situation-memory haircut applies
     max_position_pct: float = 0.10          # max 10% of equity in one position
     max_open_positions: int = 5
     max_daily_loss_pct: float = 0.03        # 3% daily loss -> kill switch trips

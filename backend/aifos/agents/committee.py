@@ -14,6 +14,8 @@ no veto AND confidence >= threshold.
 from __future__ import annotations
 
 from ..config import settings
+from ..indicators import rsi as rsi_ind
+from ..memory.vector import get_memory
 from ..risk import RiskEngine
 from ..regime import dynamic_confidence_threshold, regime_weight_multiplier
 from .analysts import (
@@ -34,7 +36,30 @@ from .governance import (
 )
 from .llm import get_llm
 
-_DEAD = 0.10  # |net| below this => no directional edge => HOLD
+_REGIME_CODE = {"trending": 0.5, "ranging": 0.0, "volatile": -0.5, "panic": -1.0}
+
+
+def _situation_features(ctx: "MarketContext", net: float) -> list[float]:
+    """A compact, symbol-AGNOSTIC market-state vector for the outcome-memory:
+    'when conditions looked like this, what happened?'. Describes the SETUP (RSI,
+    vol regime, consensus, volatility) not the instrument, so a losing pattern on
+    one symbol can suppress a similar setup on another. All components ~[-1, 1]."""
+    try:
+        c = ctx.df["close"]
+        rsi = float(rsi_ind(c).iloc[-1]) if len(c) > 14 else 50.0
+        if rsi != rsi:  # NaN guard
+            rsi = 50.0
+    except Exception:  # noqa: BLE001
+        rsi = 50.0
+    reg = ctx.extra.get("regime") or {}
+    vol_ratio = float(reg.get("vol_ratio", 1.0) or 1.0)
+    regime_code = _REGIME_CODE.get(reg.get("regime", "unknown"), 0.0)
+    atr_pct = (ctx.atr / ctx.price) if ctx.price else 0.0
+    return [(rsi - 50.0) / 50.0, max(-1.0, min(1.0, vol_ratio - 1.0)),
+            float(net), regime_code, min(1.0, atr_pct * 20.0)]
+
+
+_DEAD = 0.10  # legacy default; the live band is settings.consensus_dead_band (tuned to 0.20)
 
 _SYSTEM = (
     "You are the lead strategist of an autonomous trading desk whose first rule is "
@@ -87,7 +112,26 @@ class AgentCommittee:
         wsum = sum(_w(o) for o in voters) or 1.0
         net = sum(_w(o) * o.signed() for o in voters) / wsum
         confidence = float(min(0.97, abs(net)))
-        side = "long" if net > _DEAD else "short" if net < -_DEAD else "flat"
+        dead = settings.consensus_dead_band
+        side = "long" if net > dead else "short" if net < -dead else "flat"
+
+        # situation-memory: condition confidence on how SIMILAR PAST setups resolved.
+        # Haircut-ONLY — suppress setups that historically lost; never invent winners.
+        sit_features: list[float] = []
+        mem_note = ""
+        if side != "flat":
+            try:
+                sit_features = _situation_features(ctx, net)
+                nb = [m for m in get_memory().query(sit_features, k=8)
+                      if m.get("outcome") in ("win", "loss") and m.get("similarity", 0.0) >= 0.5]
+                if len(nb) >= settings.memory_min_neighbors:
+                    wr = sum(1 for m in nb if m["outcome"] == "win") / len(nb)
+                    if wr < 0.45:  # similar setups mostly LOST -> haircut confidence toward HOLD
+                        factor = max(0.5, wr / 0.5)
+                        confidence = float(confidence * factor)
+                        mem_note = f" memory: {len(nb)} similar setups only {wr:.0%} won -> conf x{factor:.2f}."
+            except Exception:  # noqa: BLE001 - memory must NEVER break a decision
+                pass
 
         sizing: dict = {}
         risk_dict: dict = {}
@@ -96,7 +140,7 @@ class AgentCommittee:
             verdict = "HOLD — vetoed: " + "; ".join(v.reasoning for v in vetoes)
         elif side == "flat":
             action = "HOLD"
-            verdict = f"HOLD — no directional edge (consensus {net:+.2f}, |net|<{_DEAD})."
+            verdict = f"HOLD — no directional edge (consensus {net:+.2f}, |net|<{dead})."
         else:
             blocked, news_reason = self._news_gate(side, confidence, opinions)
             if blocked:
@@ -119,7 +163,7 @@ class AgentCommittee:
                     action = "BUY" if side == "long" else "SELL"
                     sizing = risk_dict
                     verdict = (f"{action} {ctx.symbol}: consensus {net:+.2f}, confidence "
-                               f"{confidence:.0%}. {assessment.reasons[0] if assessment.reasons else ''}")
+                               f"{confidence:.0%}. {assessment.reasons[0] if assessment.reasons else ''}{mem_note}")
                 else:
                     action, side = "HOLD", "flat"
                     verdict = "HOLD — risk gate: " + "; ".join(assessment.rejections)
@@ -128,6 +172,7 @@ class AgentCommittee:
             symbol=ctx.symbol, action=action, side=side, confidence=confidence,
             reasoning=verdict, opinions=opinions, risk=risk_dict, sizing=sizing,
             source=ctx.df.attrs.get("source", "unknown"),
+            situation_features=sit_features,  # for outcome-memory writeback on resolve
         )
         decision.llm_summary = self._summarize(ctx, decision, net)
         return decision

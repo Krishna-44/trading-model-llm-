@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from ..backtest import run_backtest
+from ..backtest import cost_stress, monte_carlo, run_backtest, walk_forward
 from ..config import settings
 from ..data.models import AssetClass, is_offshore_forex
 from ..execution.base import BrokerAdapter, Fill, Order, OrderSide
@@ -16,30 +16,67 @@ from ..strategies import REGISTRY, build_strategy, is_enabled
 from .base import Agent, AgentOpinion, MarketContext
 
 
+# OOS selection scores depend only on history up to the last closed bar, so they are
+# memoized per (symbol, interval) and recomputed only when a new bar arrives — otherwise
+# every 300s cycle would re-run 15 walk-forwards on the identical daily bar. One entry
+# per (symbol, interval); bounded by the universe size.
+_SEL_CACHE: dict[tuple[str, str], tuple[str, dict[str, float]]] = {}
+
+
 class StrategyEvolutionAgent(Agent):
     name = "Strategy Evolution"
     weight = 0.0  # advisory: selects the tool, does not vote direction
 
     def analyze(self, ctx: MarketContext) -> AgentOpinion:
+        interval = ctx.extra.get("interval", "1d")
+        scores = self._oos_scores(ctx, interval)
+        # fallback is the real-edge default (BTC OOS leader), never the in-sample 'momentum'
+        best = max(scores, key=scores.get) if scores else "ema_trend_fib"
+        ctx.extra["strategy_name"] = best
+        return AgentOpinion(
+            self.name, "neutral", 0.5, self.weight,
+            f"Selected '{best}' for {ctx.symbol} (best OOS-robust backtest). "
+            f"Scores: {{{', '.join(f'{k}:{v:.2f}' for k, v in scores.items())}}}",
+            {"selected": best, "scores": {k: round(v, 3) for k, v in scores.items()}},
+        )
+
+    def _oos_scores(self, ctx: MarketContext, interval: str) -> dict[str, float]:
+        """Rank enabled strategies by OUT-OF-SAMPLE robustness, not a single in-sample
+        backtest. The in-sample Sharpe rewarded cost-fragile high-trade-count losers
+        (vwap_trend) and noise (heikin_trend) over the genuine cost-surviving edge
+        (ema_trend_fib). This is a pure SELECTION reweight — it only changes which
+        already-enabled strategy is blended; it fabricates no signal and sizes nothing."""
+        df = ctx.df
+        try:
+            bar_key = str(df.index[-1])
+        except Exception:  # noqa: BLE001
+            bar_key = str(len(df))
+        ck = (ctx.symbol, interval)
+        cached = _SEL_CACHE.get(ck)
+        if cached and cached[0] == bar_key:
+            return cached[1]
         scores: dict[str, float] = {}
         for sname in REGISTRY:
             if not is_enabled(sname):
                 continue  # marketplace: disabled strategies are not selected
             try:
-                res = run_backtest(ctx.df, build_strategy(sname),
-                                   interval=ctx.extra.get("interval", "1d"))
-                # rank by Sharpe, lightly penalize deep drawdowns
-                scores[sname] = res.metrics["sharpe"] + 0.5 * res.metrics["max_drawdown"]
-            except Exception:  # noqa: BLE001
+                sh = float(walk_forward(df, build_strategy(sname),
+                                        interval=interval)["oos"].get("sharpe", 0.0) or 0.0)
+                bt = run_backtest(df, build_strategy(sname), interval=interval)
+                score = sh
+                if bt.metrics["total_return"] <= 0:          # net loser over the window
+                    score -= 1.0
+                if not cost_stress(df, build_strategy(sname),
+                                   interval=interval)["survives_2x_cost"]:
+                    score -= 0.6                              # cost-fragile (the vwap_trend trap)
+                rwb = monte_carlo(bt.trades).get("return_without_best_trade")
+                if rwb is not None and rwb <= 0:             # one-trade-dependent, not robust
+                    score -= 0.6
+                scores[sname] = score
+            except Exception:  # noqa: BLE001 - a broken strat must never crash selection
                 scores[sname] = -99.0
-        best = max(scores, key=scores.get) if scores else "momentum"
-        ctx.extra["strategy_name"] = best
-        return AgentOpinion(
-            self.name, "neutral", 0.5, self.weight,
-            f"Selected '{best}' for {ctx.symbol} (best risk-adj backtest). "
-            f"Scores: {{{', '.join(f'{k}:{v:.2f}' for k, v in scores.items())}}}",
-            {"selected": best, "scores": {k: round(v, 3) for k, v in scores.items()}},
-        )
+        _SEL_CACHE[ck] = (bar_key, scores)
+        return scores
 
 
 class RiskManagerAgent(Agent):

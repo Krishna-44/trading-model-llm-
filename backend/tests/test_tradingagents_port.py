@@ -57,6 +57,19 @@ def test_memory_writeback_and_haircut_logic(tmp_path, monkeypatch):
     assert factor == 0.5                  # all-loss neighbourhood -> max haircut (conf x0.5)
 
 
+def test_query_is_dimension_safe(tmp_path, monkeypatch):
+    """Regression: a store holding mixed feature dims (a legacy 4-dim writer + the
+    new 5-dim situation vector) must NOT crash query() — only same-dim vectors are
+    compared. This is the exact mismatch found live (2839 legacy 4-dim entries)."""
+    monkeypatch.setattr(mv, "_STORE_PATH", str(tmp_path / "mem3.pkl"))
+    m = MarketMemory()
+    for _ in range(2839):
+        m.add([0.1, 0.2, 0.3, 0.4], {})                 # legacy 4-dim, no outcome
+    m.add([0.5, 0.1, 0.4, 0.5, 0.2], {"outcome": "loss"})  # new 5-dim
+    r = m.query([0.5, 0.1, 0.4, 0.5, 0.2], k=8)         # 5-dim query — must not raise
+    assert len(r) == 1 and r[0].get("outcome") == "loss"  # only the matching 5-dim entry
+
+
 def test_memory_no_haircut_when_winners(tmp_path, monkeypatch):
     monkeypatch.setattr(mv, "_STORE_PATH", str(tmp_path / "mem2.pkl"))
     m = MarketMemory()

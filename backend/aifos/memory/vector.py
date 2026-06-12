@@ -48,12 +48,18 @@ class MarketMemory:
         if not self.vectors:
             return []
         q = np.asarray(features, dtype=float)
-        mat = np.vstack(self.vectors)
+        # The store can hold mixed feature schemas over time (e.g. a legacy 4-dim
+        # writer and the 5-dim situation vector). Only compare against vectors of
+        # the SAME dimension as the query — otherwise np.vstack/matmul raises.
+        idx = [i for i, v in enumerate(self.vectors) if getattr(v, "shape", (0,))[0] == q.shape[0]]
+        if not idx:
+            return []
+        mat = np.vstack([self.vectors[i] for i in idx])
         # cosine similarity, NaN-safe
         denom = (np.linalg.norm(mat, axis=1) * np.linalg.norm(q)) + 1e-9
         sims = (mat @ q) / denom
         order = np.argsort(-sims)[:k]
-        return [{**self.meta[i], "similarity": round(float(sims[i]), 3)} for i in order]
+        return [{**self.meta[idx[i]], "similarity": round(float(sims[i]), 3)} for i in order]
 
     def stats(self) -> dict:
         return {"count": len(self.vectors)}

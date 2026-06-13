@@ -1,9 +1,20 @@
-# Full AIFOS stack: durable Postgres/TimescaleDB + Redis + local LLM + API + UI.
+# Full AIFOS stack: Postgres + Redis + local LLM (Ollama) + API + UI.
 # For local dev you do NOT need this — `make backend` + `make frontend` runs the
-# whole platform on SQLite with zero infra. Compose is the "production-shaped" run.
+# whole platform on SQLite with zero infra. Compose is the "production-shaped" run
+# (this is what runs 24/7 on the Raspberry Pi 5).
+#
+# NOTES:
+#  - db is postgres:16-alpine, NOT TimescaleDB — the Timescale tune tool panics on
+#    the Pi 5 cgroup. Plain Postgres is the durable store here.
+#  - restart: unless-stopped on every service so the stack self-heals after a power
+#    cut / reboot (the Pi had no restart policy and stayed dead after a crash).
+#  - backend arms the continuous PAPER marathon at boot (AIFOS_MARATHON_ON_START),
+#    so a fresh `docker compose up -d` runs + self-trains 24/7 with no manual toggle.
+#    LIVE TRADING STAYS OFF (AIFOS_LIVE_TRADING_ENABLED=false) — paper only.
 services:
   db:
-    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: aifos
       POSTGRES_PASSWORD: aifos
@@ -17,17 +28,21 @@ services:
       retries: 10
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     ports: ["6379:6379"]
 
   ollama:
+    restart: unless-stopped
     image: ollama/ollama:latest
     ports: ["11434:11434"]
     volumes: ["aifos_ollama:/root/.ollama"]
     # After `docker compose up`, pull a model into this service once:
-    #   docker compose exec ollama ollama pull llama3   (or mistral / phi3)
+    #   docker compose exec ollama ollama pull llama3.2:3b
+    # (without a model, the committee falls back to deterministic mode — still works.)
 
   backend:
+    restart: unless-stopped
     build: ./backend
     depends_on:
       db: { condition: service_healthy }
@@ -37,10 +52,13 @@ services:
       AIFOS_LLM_PROVIDER: ollama
       AIFOS_OLLAMA_BASE_URL: http://ollama:11434
       AIFOS_OLLAMA_MODEL: llama3
-      AIFOS_LIVE_TRADING_ENABLED: "false"
+      AIFOS_LIVE_TRADING_ENABLED: "false"   # paper only — never flip without 6/6 + intent
+      AIFOS_MARATHON_ON_START: "true"        # arm the continuous paper marathon + self-training at boot
+      AIFOS_BRAIN_URL: http://192.168.60.183:5678
     ports: ["8000:8000"]
 
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       args: { NEXT_PUBLIC_AIFOS_API: "http://localhost:8000" }

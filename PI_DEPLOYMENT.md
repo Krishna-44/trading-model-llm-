@@ -1,66 +1,138 @@
-# AIFOS on Raspberry Pi — deployment status & bridge
+# AIFOS on Raspberry Pi 5 — LIVE DEPLOYMENT STATUS (updated 2026-06-10)
 
-This ties the AIFOS build work to the Pi-setup effort. Short version: **the code
-is 100% Pi-ready and already "merged"** — the Pi clones `main`, so it gets every
-improvement automatically. The only blocker is **hardware** (the Pi never booted).
+⚠️ This supersedes the earlier version of this file. The earlier note said "the Pi
+has never booted, hardware is the blocker" and assumed a systemd `aifos-paper`
+deploy on :8001. **Both of those are now outdated.** The Pi IS booted and running
+AIFOS live — but via the **Docker Compose stack on :8000**, not the systemd
+marathon on :8001. Read this for the ACTUAL state.
 
-## What the Pi runs (and gets for free via `git clone`)
+────────────────────────────────────────────────────────────────────────
+## TL;DR
 
-The Pi runs the **paper-forward marathon on :8001** — the exact same FastAPI app
-that runs on the Mac via launchd. Cloning `main` pulls all of this session's work:
+- Pi 5 is up, headless, **static IP 192.168.60.183**, running AIFOS in Docker 24/7.
+- AIFOS = the **Docker Compose "production-shaped" stack** (`~/aifos`): FastAPI
+  backend **:8000**, Next.js frontend **:3000**, **postgres:16-alpine** :5432,
+  redis :6379, ollama :11434. All `restart: unless-stopped` (self-heals on reboot).
+- Mode = **paper** (₹10,00,000). **Live trading OFF** (`AIFOS_LIVE_TRADING_ENABLED=false`).
+- Mac source (`~/ai-trading-os`) and the Pi deployment are **code-consistent** as of
+  this date (same kernel + execution refactor + the new safety gates).
+- The safety gates ARE wired and active on the Pi. The two new committee agents are
+  deliberately OFF (see `backend/aifos/IMPROVEMENTS_WIRING.md` review verdict).
 
-- **Strategies** — the full library incl. the promoted, cooking-validated trend
-  set: `ema_trend_fast` (10/30/100), `supertrend_fast` (7/4/15), and
-  `ema_trend_fib` (13/34/89 — the most MC-robust discovery, 3/4 markets robust +
-  cost-survive 3/4). `heikin_trend` on-watch. Cooking keeps discovering 24/7.
-- **Safety gates (all block-only, all tested)** — bad-tick execution guard
-  (refuses corrupt quotes like the EURINR 9197 that once booked −4.13M),
-  directional-balance / portfolio-heat (no 100%-one-sided book), persistent
-  run-to-ruin halt (survives restarts), min-hold churn guard (no flip-flop
-  commission bleed), vol-regime + event-window gates, correlation gate.
-- **Live-money safety** — monitor-only now enforced on *every* live broker path +
-  the deployment gate; live trading stays OFF until 6/6 readiness gates pass.
+────────────────────────────────────────────────────────────────────────
+## 1. ACCESS
 
-So there is nothing to "port" — `main` IS the Pi build.
+- `ssh pi@192.168.60.183` — user `pi`, password `raspberry`, key auth on the Mac, NOPASSWD sudo.
+  Host-key error fix: `ssh-keygen -R 192.168.60.183 -f /tmp/pi5_known_hosts` then `-o StrictHostKeyChecking=accept-new`.
+- AIFOS dir on Pi: `~/aifos`. Boots from USB (black USB-2 port). IPv6 off. IP is STATIC.
+- For a screen: VNC over WiFi (`192.168.60.183:5900`, wayvnc). **Do NOT attach an
+  HDMI monitor** without the official 27W PSU — it brown-out-crashed the Pi (the
+  marginal supply can't drive the monitor + 14 containers). Headless is stable.
 
-## Deployment steps (once hardware is ready)
+────────────────────────────────────────────────────────────────────────
+## 2. RUN MODE — important reconciliation
 
-```bash
-# on the Pi (64-bit Raspberry Pi OS / Ubuntu, Pi 4 4GB+ or Pi 5):
-git clone <repo-url> ~/ai-trading-os
-cd ~/ai-trading-os
-./scripts/raspberry-pi-setup.sh        # python3.11 venv + deps + installs systemd units
-sudo systemctl enable --now aifos-paper.service aifos-paper-watchdog.timer
-journalctl -u aifos-paper -f           # watch it boot the marathon
-curl -s localhost:8001/api/health      # {"status":"ok"}
+AIFOS has TWO run modes; know which is live:
+
+- **(A) Docker Compose stack — THIS is what's deployed & running on the Pi.**
+  `~/aifos/docker-compose.yml`. Backend :8000, postgres/redis/ollama. Durable DB.
+- **(B) systemd "paper marathon" on :8001** (`scripts/aifos-paper.service`, SQLite,
+  `make backend`). This is what the earlier note assumed — **it is NOT running on
+  the Pi.** If you actually want (B) instead of (A), stop the compose stack and set
+  up the systemd unit; don't run both (port/DB confusion).
+
+Operate (A):
+```
+ssh pi@192.168.60.183
+cd ~/aifos
+sudo docker compose ps
+sudo docker compose logs -f backend
+sudo docker compose up -d                 # recover after reboot (also auto-restarts)
+sudo docker compose up -d --build backend # after deploying code changes
+```
+Verify:
+```
+curl -s http://192.168.60.183:8000/api/portfolio        # paper acct, mode "paper"
+curl -s -X POST http://192.168.60.183:8000/api/analyze -H 'content-type: application/json' -d '{"symbol":"^NSEI"}'
 ```
 
-The systemd unit (`scripts/aifos-paper.service`) mirrors the macOS launchd plist:
-`Restart=always` (KeepAlive), `RestartSec=10` (throttle), `MemoryMax=1500M` (Pi
-OOM protection), watchdog companion timer. Marathon arms at boot.
+────────────────────────────────────────────────────────────────────────
+## 3. DEPLOYMENT-SPECIFIC CHANGES (already in this repo's source)
 
-## Config parity note
+1. **Risk gates WIRED into `kernel.py`** (`analyze()` → `_hard_gates()`), active:
+   `risk/event_filter.py` (NSE expiry/RBI/auction no-trade windows),
+   `risk/vol_gate.py` (panic/volatile/VIX hard stand-aside),
+   `memory/brain_sync.py` (fire-and-forget decision→n8n-brain). 79 tests pass.
+2. **`agents/multi_timeframe.py` + `agents/sector_rotation.py`** — tested but NOT
+   registered in the committee (deliberate — see `backend/aifos/IMPROVEMENTS_WIRING.md`
+   REVIEW VERDICT: redundancy + scope-mismatch). Don't enable without re-reading it.
+3. **`indicators/extended.py`** — Ichimoku, Aroon, Hull MA, Volume Profile, anchored VWAP.
+4. **`api/news_signal.py`** — `/api/news-signal` receiver (router not yet mounted in
+   `app.py`; mount it to let the n8n news pipeline feed AIFOS).
+5. **`notifications/telegram.py`** — alerts; no-op until `AIFOS_TELEGRAM_BOT_TOKEN`+`_CHAT_ID` set.
+6. **`frontend/components/BacktestPanel.tsx`** + fixes (`ActivityFeed.tsx` removed a
+   redundant `?? ""`; `next.config.js` has `eslint.ignoreDuringBuilds`) — needed so
+   `next build` succeeds in the Docker image.
+7. **docker-compose**: db = postgres:16-alpine (NOT TimescaleDB — see §5),
+   `restart: unless-stopped` on all 5 services, `AIFOS_BRAIN_URL` env added.
 
-| Var | macOS launchd (active) | Pi systemd | Why |
-|---|---|---|---|
-| `AIFOS_CONFIDENCE_THRESHOLD` | `0.10` | `0.30` | Mac = aggressive debug bar; Pi = more selective. Both are forward-test bars BELOW the production `0.62`. Align to taste. |
-| everything else | — | — | identical (broker=paper, marathon-on-start, max-positions=8, llm=none) |
+📌 **Commit these to `main`.** The earlier note assumed "the Pi clones `main`, so it
+gets everything for free." That's only true if these deployment changes are
+committed. Verify with `git status` / `git diff` and commit before relying on a
+fresh `git clone` reproducing the Pi.
 
-## Hardware blockers (the actual gate — unchanged)
+Push Mac→Pi without git:
+```
+rsync -avz --exclude '.venv' --exclude 'node_modules' --exclude '.next' --exclude '.git' \
+  -e "ssh -o UserKnownHostsFile=/tmp/pi5_known_hosts" \
+  backend/ pi@192.168.60.183:/home/pi/aifos/backend/
+ssh pi@192.168.60.183 'cd ~/aifos && sudo docker compose up -d --build backend'
+```
 
-The Pi has **never booted**. To deploy it needs:
-1. **A proper Pi 5 PSU — 5V/5A (27W) USB-C.** A phone charger is insufficient and
-   causes brownout/throttling/SD-corruption.
-2. **A reliable boot drive — a USB SSD, NOT an SD card.** The autonomous loop
-   writes SQLite every cycle; SD cards die in months under that load, and the
-   flaky reader/dongle corrupted writes mid-flash last time (I/O error).
-3. **Network onboarding** — Pi 5 WiFi is `brcmfmac43455`; Bookworm uses
-   NetworkManager (`nmcli`), not `wpa_supplicant`. Use the imager's network preset
-   or ethernet for first boot.
+────────────────────────────────────────────────────────────────────────
+## 4. KNOWN GAPS / ACTION ITEMS
 
-Once those three are sorted, the deploy above is ~10 minutes and fully hands-off.
+1. **Ollama model NOT pulled.** `AIFOS_OLLAMA_MODEL=llama3` but `ollama list` is
+   empty → LLM layer falls back to the deterministic committee (11 agents still
+   vote; logs show "LLM fallback: Ollama model 'llama3' not pulled"). To enable LLM:
+   ```
+   ssh pi@192.168.60.183 'cd ~/aifos && sudo docker compose exec ollama ollama pull llama3.2:3b'
+   # set AIFOS_OLLAMA_MODEL: llama3.2:3b in docker-compose.yml, then: docker compose up -d backend
+   ```
+   ⚠ ~2GB + inference load — do after the 27W PSU, or use `AIFOS_LLM_PROVIDER=groq` + `GROQ_API_KEY` for fast cloud LLM instead.
+2. **Brain ingestion 404s** until the n8n brain workflows are imported into the
+   LOCAL n8n (owner account not created yet). Harmless; import to start memory flow.
+3. **Live trading stays OFF** — real money only after the 6/6 readiness gates, ₹2,000 cap. Don't flip the gate programmatically.
+4. **Broker API (Kite/AngelOne) not integrated** — paper on yfinance works without it.
 
-## Security reminders (from chat)
-- Rotate the AngelOne PIN + API key + Gemini key that were shared in chat.
-- Change the Pi password after first boot; don't paste WiFi creds in chat.
-- Real money only at 6/6 readiness gates, ₹2,000 cap — never before.
+────────────────────────────────────────────────────────────────────────
+## 5. GOTCHAS (don't re-hit)
+
+- **db = postgres:16-alpine, NOT TimescaleDB.** TimescaleDB's `timescaledb-tune`
+  panics on Pi 5 cgroup (`/sys/fs/cgroup/memory.max` missing). AIFOS uses no
+  hypertables, so plain Postgres is correct. Don't switch back on the Pi.
+- **Frontend prod build is strict** (`next build` type-checks all). Run `tsc --noEmit`
+  before deploying frontend; keep `eslint.ignoreDuringBuilds`.
+- **All Pi services now auto-restart.** AIFOS originally lacked a restart policy and
+  stayed dead after a power-crash; fixed (`restart: unless-stopped`).
+- **Power is the real constraint.** Stable headless; get the official 27W Pi-5 PSU
+  before attaching a monitor or pulling the Ollama model under load.
+
+────────────────────────────────────────────────────────────────────────
+## 6. NEIGHBOURS AIFOS CAN USE (same Pi)
+
+- **JARVIS MCP** `http://192.168.60.183:8765/mcp` — 6 `aifos_*` tools call AIFOS's API (verified end-to-end).
+- **Brain (n8n)** `http://192.168.60.183:5678` — AIFOS feeds it via `brain_sync` (once workflows imported).
+- **Unified dashboard** `http://192.168.60.183:8080`. Also Grafana :3002, Prometheus :9090, Portainer :9000, Vaultwarden :8222, Chroma :8001, MinIO :9091, Uptime-Kuma :3001, Jupyter :8888. Restic backups + Tailscale installed.
+
+────────────────────────────────────────────────────────────────────────
+## 7. SECURITY (from prior chat — still applies)
+- Rotate any AngelOne PIN / API key / Gemini / WiFi creds shared in chat.
+- Change the Pi `pi` password from `raspberry`.
+- Real money only at 6/6 readiness, ₹2,000 cap — never before.
+
+## 8. ONE-LINER STATUS
+```
+ssh pi@192.168.60.183 'cd ~/aifos && sudo docker compose ps; curl -s localhost:8000/api/portfolio | head -c 160; echo; vcgencmd get_throttled; vcgencmd measure_temp'
+```
+Healthy = 5 services up, portfolio JSON `"mode":"paper"`, `throttled=0x0`.

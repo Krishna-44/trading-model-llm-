@@ -15,6 +15,7 @@ backend/aifos.db
 node_modules/
 frontend/.next/
 frontend/out/
+*.tsbuildinfo
 npm-debug.log*
 
 # External reference repos (studied, not part of the build)

@@ -26,7 +26,7 @@ export function ActivityFeed({ events }: { events: any[] }) {
               {e.kind === "fill" && (
                 <><span className="text-accent-soft">FILL</span> {e.symbol} <span className="num text-zinc-500">{num(e.fill?.qty, 2)} @ {num(e.fill?.price)}</span></>
               )}
-              {e.kind === "control" && <span className="text-amber-300">{e.event} {e.reason ?? (e.on ? "on" : "off") ?? ""}</span>}
+              {e.kind === "control" && <span className="text-amber-300">{e.event} {e.reason ?? (e.on ? "on" : "off")}</span>}
             </span>
             <span className="num ml-auto shrink-0 text-[10px] text-zinc-600">{timeAgo(e.ts)}</span>
           </div>

@@ -29,6 +29,9 @@ from .memory.vector import get_memory
 from .notifications.notifier import get_notifier
 from .persistence.repo import Repository
 from .risk import RiskEngine
+from .risk.event_filter import is_blocked as _event_blocked
+from .risk.vol_gate import check as _vol_gate_check
+from .memory.brain_sync import get_brain_sync
 
 logger = logging.getLogger("aifos.kernel")
 
@@ -63,6 +66,7 @@ class AIFOSKernel:
         self.memory = get_memory()
         self.notifier = get_notifier()
         self.bus = EventBus()
+        self.brain = get_brain_sync()   # fire-and-forget ingestion into the n8n memory brain
         try:
             self.broker.connect()
         except Exception:  # noqa: BLE001 - a broker connection issue must never crash the app
@@ -108,12 +112,49 @@ class AIFOSKernel:
     # --- decide ----------------------------------------------------------
     def analyze(self, symbol: str, interval: str = "1d", persist: bool = True) -> tuple[TradeDecision, MarketContext]:
         ctx = self.build_context(symbol, interval)
+
+        # Hard, deterministic gates BEFORE the committee deliberates. Both fail
+        # safe (return HOLD) and cost no LLM tokens. They can only block a trade,
+        # never create one — survivability over frequency.
+        gated = self._hard_gates(ctx)
+        if gated is not None:
+            self._remember(gated)
+            if persist:
+                self._persist_decision(gated)
+            self.bus.publish("decision", {"decision": gated.to_dict()})
+            self.brain.record_decision(gated)
+            return gated, ctx
+
         decision = self.committee.deliberate(ctx, self.risk)
         self._remember(decision)
         if persist:
             self._persist_decision(decision)
         self.bus.publish("decision", {"decision": decision.to_dict()})
+        self.brain.record_decision(decision)   # best-effort; never blocks
         return decision, ctx
+
+    def _hard_gates(self, ctx: MarketContext) -> TradeDecision | None:
+        """Event-window + volatility stand-aside gates. Returns a HOLD decision
+        to short-circuit, or None to proceed to the committee. Never raises."""
+        try:
+            ev = _event_blocked(ctx.symbol)
+            if ev.blocked:
+                return TradeDecision(
+                    symbol=ctx.symbol, action="HOLD", side="flat", confidence=0.0,
+                    reasoning=f"Blocked by event window: {ev.label}",
+                    opinions=[], source="event_filter",
+                )
+            regime = (ctx.extra or {}).get("regime") or {}
+            vg = _vol_gate_check(regime)
+            if vg.blocked:
+                return TradeDecision(
+                    symbol=ctx.symbol, action="HOLD", side="flat", confidence=0.0,
+                    reasoning=f"Vol gate: {vg.reason}",
+                    opinions=[], source="vol_gate",
+                )
+        except Exception:  # noqa: BLE001 - a gate bug must never crash a cycle
+            logger.exception("hard gate evaluation failed for %s — proceeding", ctx.symbol)
+        return None
 
     def _correlation_gate(self, symbol: str, decision, interval: str) -> str | None:
         """Block a trade that would STACK the same directional bet across correlated

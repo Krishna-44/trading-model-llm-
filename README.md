@@ -10,7 +10,7 @@ money — and, far more often, decides not to.
 > and is engineered to *wait*. Live real-money trading is **OFF by default** behind an
 > explicit gate. See [Safety & the live gate](#safety--the-live-gate).
 
-![paper-first](https://img.shields.io/badge/mode-paper--first-22d3ee) ![python](https://img.shields.io/badge/python-3.11-3776AB) ![license](https://img.shields.io/badge/license-private-555)
+![paper-first](https://img.shields.io/badge/mode-paper--first-22d3ee) ![python](https://img.shields.io/badge/python-3.11-3776AB) ![license](https://img.shields.io/badge/license-all%20rights%20reserved-555)
 
 ---
 
